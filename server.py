@@ -2,13 +2,13 @@ import grpc
 from concurrent import futures
 import time
 import threading
-import queue
 import uuid
 import random
 import socket
 import card_game_pb2 as pb
 import card_game_pb2_grpc as stub
 from storage import Storage
+from session import GameSession
 
 
 def get_local_ip():
@@ -34,8 +34,9 @@ class CardGameService(stub.CardGameServiceServicer):
         self.storage = Storage(f"cardgame-{port}.db")
 
         self.match_queue = {2: [], 3: [], 4: []}
-        self.active_games = {}
+        self.match_results = {}
         self.online_users = {}
+        self.active_games = {}  # game_id -> GameSession
 
         if self.is_leader:
             self.replicas = [stub.CardGameServiceStub(grpc.insecure_channel(addr)) for addr in self.replica_addresses]
@@ -92,131 +93,83 @@ class CardGameService(stub.CardGameServiceServicer):
         if num not in self.match_queue:
             return pb.Response(status="error", message="Invalid player count")
 
-        self.match_queue[num].append((request.username, context))
+        if request.username in self.match_results:
+            game_id = self.match_results.pop(request.username)
+            return pb.Response(status="success", message=f"Game ready! ID: {game_id}")
+
+        if request.username not in self.match_queue[num]:
+            self.match_queue[num].append(request.username)
 
         if len(self.match_queue[num]) == num:
-            game_id = str(uuid.uuid4())[:8]
-            players = [entry[0] for entry in self.match_queue[num]]
-            response_contexts = [entry[1] for entry in self.match_queue[num]]
+            players = self.match_queue[num]
             self.match_queue[num] = []
+            game_id = str(uuid.uuid4())[:8]
 
-            cards = list(range(10)) * 4
-            random.shuffle(cards)
-            hands = [cards[i::num] for i in range(num)]
+            self.active_games[game_id] = GameSession(game_id, players)
 
-            for i, player in enumerate(players):
-                self.storage.add_player_to_game(game_id, player, hands[i])
-
-            self.active_games[game_id] = {
-                "players": players,
-                "turn_index": 0,
-                "last_played": [],
-                "countdown": 20,
-                "start_time": time.time(),
-                "winner": None
-            }
-
-            self.storage.create_game(game_id)
-            self.storage.update_game_turn(game_id, players[0])
-
-            for ctx in response_contexts:
-                ctx.set_trailing_metadata((('game-id', game_id),))
-
-            return pb.Response(status="success", message=f"Game ready! ID: {game_id}")
+            for player in players:
+                self.match_results[player] = game_id
 
         return pb.Response(status="waiting", message="Waiting for more players...")
 
     def AcceptMatch(self, request, context):
-        state = self.active_games.get(request.game_id)
-        if not state:
+        if request.game_id not in self.active_games:
             return pb.Response(status="error", message="Invalid game ID")
-        if request.username not in state["players"]:
+        if request.username not in self.active_games[request.game_id].players:
             return pb.Response(status="error", message="User not in this game")
         return pb.Response(status="success", message="Joined game")
 
     def PlayCard(self, request, context):
-        if not self.is_leader:
-            return pb.Response(status="error", message="Only leader handles card play")
+        session = self.active_games.get(request.game_id)
+        if not session:
+            return pb.Response(status="error", message="Game not found")
 
-        game_id, user, cards = request.game_id, request.username, request.cards
-        state = self.active_games.get(game_id)
-        if not state:
-            return pb.Response(status="error", message="Invalid game")
-
-        current = state["players"][state["turn_index"]]
-        if user != current:
-            return pb.Response(status="error", message="Not your turn")
-
-        hand = self.storage.get_cards(game_id, user)
-        if not all(card in hand for card in cards):
-            return pb.Response(status="error", message="Invalid card play")
-
-        for c in cards:
-            hand.remove(c)
-        self.storage.update_cards(game_id, user, hand)
-        state["last_played"] = cards
-
-        if len(hand) == 0:
-            self.storage.declare_winner(game_id, user)
-            state["winner"] = user
-        else:
-            state["turn_index"] = (state["turn_index"] + 1) % len(state["players"])
-            self.storage.update_game_turn(game_id, state["players"][state["turn_index"]])
-            state["start_time"] = time.time()
-        return pb.Response(status="success", message="Card played")
+        success, msg = session.play_cards(request.username, list(request.cards))
+        return pb.Response(status="success" if success else "error", message=msg)
 
     def PassTurn(self, request, context):
-        if not self.is_leader:
-            return pb.Response(status="error", message="Only leader handles pass turn")
+        session = self.active_games.get(request.game_id)
+        if not session:
+            return pb.Response(status="error", message="Game not found")
 
-        game_id, user = request.game_id, request.username
-        state = self.active_games.get(game_id)
-        if not state or state["players"][state["turn_index"]] != user:
-            return pb.Response(status="error", message="Not your turn")
-
-        state["turn_index"] = (state["turn_index"] + 1) % len(state["players"])
-        self.storage.update_game_turn(game_id, state["players"][state["turn_index"]])
-        state["start_time"] = time.time()
-        return pb.Response(status="success", message="Passed turn")
+        success, msg = session.pass_turn(request.username)
+        return pb.Response(status="success" if success else "error", message=msg)
 
     def QuitGame(self, request, context):
-        if not self.is_leader:
-            return pb.Response(status="error", message="Only leader handles quit game")
+        session = self.active_games.get(request.game_id)
+        if not session:
+            return pb.Response(status="error", message="Game not found")
 
-        game_id, user = request.game_id, request.username
-        self.storage.quit_game(game_id, user)
+        session.quit_game(request.username)
         return pb.Response(status="success", message="You quit and received a loss")
 
     def GetGameState(self, request, context):
-        data = self.storage.get_game_state(request.game_id)
-        if not data["game"]:
+        session = self.active_games.get(request.game_id)
+        if not session:
             return pb.GameStateResponse(status="error", message="Invalid game ID")
 
-        g = data["game"]
+        state = session.get_game_state()
         players = []
-        for p in data["players"]:
-            win_rate = self.storage.get_win_rate(p["username"])
+        for user in state["players"]:
+            hand = state["hands"].get(user, [])
             players.append(pb.PlayerInfo(
-                username=p["username"],
-                card_count=len(p["cards"].split(",")) if p["cards"] else 0,
-                cards=[int(c) for c in p["cards"].split(",")] if p["username"] == g["current_turn"] else [],
-                win_rate=win_rate,
-                is_connected=bool(p["is_connected"]),
-                is_current_turn=(p["username"] == g["current_turn"])
+                username=user,
+                card_count=len(hand),
+                cards=hand if user == request.username else [],
+                win_rate=self.storage.get_win_rate(user),
+                is_connected=True,
+                is_current_turn=(user == state["current_turn"])
             ))
-
-        state = self.active_games.get(request.game_id, {})
-        countdown = max(0, int(20 - (time.time() - state.get("start_time", 0))))
 
         return pb.GameStateResponse(
             status="success",
-            message="Game fetched",
-            current_turn=g["current_turn"],
-            last_played_cards=state.get("last_played", []),
+            message="Fetched",
+            current_turn=state["current_turn"],
+            last_played_cards=state["last_played"],
             players=players,
-            countdown_seconds=countdown,
-            game_over=g["status"] == "finished",
-            winner=g.get("winner", "")
+            countdown_seconds=20,
+            game_over=bool(state["winner"]),
+            winner=state["winner"] or ""
         )
 
 

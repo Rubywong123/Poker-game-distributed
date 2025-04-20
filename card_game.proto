@@ -69,6 +69,7 @@ message GameActionRequest {
 // Game State
 message GameStateRequest {
   string game_id = 1;
+  string username = 2;
 }
 
 message PlayerInfo {

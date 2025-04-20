@@ -60,8 +60,23 @@ class CardGameGUI:
     def start_match(self):
         try:
             n = int(self.num_players_entry.get())
-            resp = self.stub.StartMatch(pb.MatchRequest(username=self.username, num_players=n))
-            self.status_label.config(text=resp.message)
+            self.status_label.config(text="Waiting for players...")
+            self.root.update()
+
+            while True:
+                resp = self.stub.StartMatch(pb.MatchRequest(username=self.username, num_players=n))
+                self.status_label.config(text=resp.message)
+                self.root.update()
+
+                if resp.status == "success":
+                    game_id = resp.message.split("ID: ")[-1]
+                    self.game_id = game_id.strip()
+                    self.game_screen()
+                    break
+                elif resp.status == "error":
+                    break
+
+                time.sleep(2)
         except ValueError:
             messagebox.showerror("Error", "Enter a valid number")
 
@@ -112,7 +127,10 @@ class CardGameGUI:
             for p in resp.players:
                 line = f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}, Connected: {p.is_connected}\n"
                 if p.username == self.username:
-                    line += f"Your Hand: {p.cards}\n"
+
+                    breakpoint()
+                    hand_str = ', '.join(map(str, p.cards))
+                    line += f"Your Hand: {hand_str}\n"
                 self.info_box.insert(tk.END, line)
 
             if resp.game_over:
@@ -120,7 +138,8 @@ class CardGameGUI:
                 self.game_id = None
 
             self.info_box.config(state=tk.DISABLED)
-        except grpc.RpcError:
+        except Exception as e:
+            print(e)
             pass
 
     def play_card(self):

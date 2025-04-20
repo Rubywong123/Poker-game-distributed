@@ -127,6 +127,15 @@ class Storage:
             "game": dict(game) if game else None,
             "players": [dict(row) for row in players]
         }
+    
+    def get_win_rate(self, username):
+        cursor = self.execute_query("SELECT num_win, num_lost FROM users WHERE username=?", (username,))
+        row = cursor.fetchone()
+        if row:
+            wins, losses = row["num_win"], row["num_lost"]
+            total = wins + losses
+            return wins / total if total > 0 else 0.0
+        return 0.0
 
     def quit_game(self, game_id, username):
         """Handles a player quitting the game."""
