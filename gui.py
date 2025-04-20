@@ -1,291 +1,162 @@
 import tkinter as tk
-from tkinter import scrolledtext, messagebox, simpledialog
-import threading
-import chat_pb2
-import chat_pb2_grpc
+from tkinter import messagebox
 import grpc
-from argparse import ArgumentParser
-from google.protobuf.empty_pb2 import Empty
+import threading
 import time
+from argparse import ArgumentParser
 
-def parse_args():
-    parser = ArgumentParser()
-    parser.add_argument("--host", default='127.0.0.1', help="Host address")
-    parser.add_argument("--port", default=50051, help="Port number")
-    return parser.parse_args()
+import card_game_pb2 as pb
+import card_game_pb2_grpc as stub
 
-class ChatGUI:
+class CardGameGUI:
     def __init__(self, root, args):
         self.root = root
-        self.root.title("Chat App")
-        
+        self.root.title("Card Game App")
 
-        # gRPC channel and stub
         self.channel = grpc.insecure_channel(f"{args.host}:{args.port}")
-        self.stub = chat_pb2_grpc.ChatServiceStub(self.channel)
+        self.stub = stub.CardGameServiceStub(self.channel)
+
         self.username = None
-        self.password = None
+        self.game_id = None
 
-        # add procedure to handle window close event
-        self.root.protocol("WM_DELETE_WINDOW", self.handle_close)
-        self.replica_addresses = []
+        self.login_screen()
 
-        # Show login screen first
-        self.show_login_window()
-
-        self.server_disconnected = threading.Event()
-        threading.Thread(target=self.monitor_connection, daemon=True).start()
-
-    def show_login_window(self):
-        """Display login screen."""
+    def login_screen(self):
         self.clear_window()
-        self.root.title("Chat App")
-
-        tk.Label(self.root, text="Username:").pack()
+        tk.Label(self.root, text="Username").pack()
         self.username_entry = tk.Entry(self.root)
         self.username_entry.pack()
 
-        tk.Label(self.root, text="Password:").pack()
-        self.password_entry = tk.Entry(self.root, show="*")
+        tk.Label(self.root, text="Password").pack()
+        self.password_entry = tk.Entry(self.root, show='*')
         self.password_entry.pack()
 
-        login_button = tk.Button(self.root, text="Login / Register", command=self.login)
-        login_button.pack()
+        tk.Button(self.root, text="Login", command=self.login).pack()
 
     def login(self):
-        """Authenticate user and open chat window."""
         username = self.username_entry.get().strip()
         password = self.password_entry.get().strip()
-
-        if not username or not password:
-            messagebox.showerror("Error", "Username and password cannot be empty")
-            return
-
-        response = self.stub.Login(chat_pb2.LoginRequest(username=username, password=password))
-
-        if response.status == "success":
+        resp = self.stub.Login(pb.LoginRequest(username=username, password=password))
+        if resp.status == "success":
             self.username = username
-            self.password = password
-            messagebox.showinfo("Success", "Login successful!")
-            self.show_chat_window()
-            threading.Thread(target=self.listen_for_messages, daemon=True).start()
-            threading.Thread(target=self.listen_for_server_info, daemon=True).start()
+            self.home_screen()
         else:
-            messagebox.showerror("Login Failed", response.message)
+            messagebox.showerror("Login Failed", resp.message)
 
-    def show_chat_window(self):
-        """Display the main chat interface with proper placeholder text behavior."""
+    def home_screen(self):
         self.clear_window()
+        tk.Label(self.root, text=f"Welcome {self.username}").pack()
 
-        # change the title into "Chat App - [username]"
-        self.root.title(f"Chat App - {self.username}")
+        tk.Label(self.root, text="Number of players").pack()
+        self.num_players_entry = tk.Entry(self.root)
+        self.num_players_entry.pack()
 
-        self.chat_display = scrolledtext.ScrolledText(self.root, width=50, height=20, state=tk.DISABLED)
-        self.chat_display.pack()
+        tk.Button(self.root, text="Start Match", command=self.start_match).pack()
+        tk.Button(self.root, text="Accept Match", command=self.accept_match).pack()
 
-        # Recipient input field
-        self.recipient_entry = tk.Entry(self.root, width=30, fg="grey")
-        self.recipient_entry.pack()
-        self.recipient_entry.insert(0, "Enter recipient")
-        self.recipient_entry.bind("<FocusIn>", lambda event: self.on_focus_in(self.recipient_entry, "Enter recipient"))
-        self.recipient_entry.bind("<FocusOut>", lambda event: self.on_focus_out(self.recipient_entry, "Enter recipient"))
+        self.status_label = tk.Label(self.root, text="")
+        self.status_label.pack()
 
-        # Message input field
-        self.message_entry = tk.Entry(self.root, width=30, fg="grey")
-        self.message_entry.pack()
-        self.message_entry.insert(0, "Enter message")
-        self.message_entry.bind("<FocusIn>", lambda event: self.on_focus_in(self.message_entry, "Enter message"))
-        self.message_entry.bind("<FocusOut>", lambda event: self.on_focus_out(self.message_entry, "Enter message"))
+    def start_match(self):
+        try:
+            n = int(self.num_players_entry.get())
+            resp = self.stub.StartMatch(pb.MatchRequest(username=self.username, num_players=n))
+            self.status_label.config(text=resp.message)
+        except ValueError:
+            messagebox.showerror("Error", "Enter a valid number")
 
-        send_button = tk.Button(self.root, text="Send Message", command=self.send_message)
-        send_button.pack()
-
-        read_button = tk.Button(self.root, text="Read Messages", command=self.read_messages)
-        read_button.pack()
-
-        list_accounts_button = tk.Button(self.root, text="List Accounts", command=self.list_accounts)
-        list_accounts_button.pack()
-
-        delete_message_button = tk.Button(self.root, text="Delete Most Recent Message With ...", command=self.delete_message)
-        delete_message_button.pack()
-
-        delete_account_button = tk.Button(self.root, text="Delete Account", command=self.delete_account)
-        delete_account_button.pack()
-
-        logout_button = tk.Button(self.root, text="Logout", command=self.logout)
-        logout_button.pack()
-
-    def on_focus_in(self, entry, placeholder):
-        """Remove placeholder text and change color to black when user clicks the field."""
-        if entry.get() == placeholder:
-            entry.delete(0, tk.END) 
-            entry.config(fg="black")
-
-    def on_focus_out(self, entry, placeholder):
-        """Restore placeholder text if the user leaves the field empty."""
-        if not entry.get().strip():
-            entry.insert(0, placeholder)
-            entry.config(fg="grey")
-
-
-    def send_message(self):
-        """Send a message and reset placeholders correctly."""
-        recipient = self.recipient_entry.get().strip()
-        message = self.message_entry.get().strip()
-
-        if recipient == "Enter recipient" or message == "Enter message":
-            messagebox.showerror("Error", "Please enter a valid recipient and message.")
+    def accept_match(self):
+        game_id = tk.simpledialog.askstring("Game ID", "Enter Game ID:")
+        if not game_id:
             return
-
-        response = self.stub.SendMessage(
-            chat_pb2.SendMessageRequest(username=self.username, recipient=recipient, message=message)
-        )
-
-        if response.status == "success":
-            self.recipient_entry.delete(0, tk.END)
-            self.recipient_entry.insert(0, "Enter recipient")
-            self.recipient_entry.config(fg="grey")
-
-            self.message_entry.delete(0, tk.END)
-            self.message_entry.insert(0, "Enter message")
-            self.message_entry.config(fg="grey")
-
-        messagebox.showinfo("Message Status", response.message)
-
-
-    def read_messages(self):
-        """Retrieve messages with a user-specified limit."""
-        try:
-            limit = simpledialog.askinteger("Input", "Enter the number of messages to retrieve (0-10):", minvalue=0, maxvalue=10)
-            if limit is None:
-                return
-
-            response = self.stub.ReadMessages(chat_pb2.ReadMessagesRequest(username=self.username, limit=limit))
-
-            self.chat_display.config(state=tk.NORMAL)
-            self.chat_display.insert(tk.END, "\n--- Messages ---\n")
-            for msg in response.messages:
-                self.chat_display.insert(tk.END, f"From {msg.sender}: {msg.message}\n")
-            self.chat_display.config(state=tk.DISABLED)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    def list_accounts(self):
-        """List available user accounts."""
-        response = self.stub.ListAccounts(chat_pb2.ListAccountsRequest(page_num=1))
-        messagebox.showinfo("Accounts", "\n".join(response.usernames))
-
-    def delete_message(self):
-        """Delete Most recent message, given the recipient."""
-        try:
-            recipient = simpledialog.askstring("Input", "Enter recipient username:")
-
-            if not recipient:
-                return
-
-            response = self.stub.DeleteMessage(chat_pb2.DeleteMessageRequest(username=self.username, recipient=recipient))
-            messagebox.showinfo("Delete Status", response.message)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    def delete_account(self):
-        """Delete the user's account."""
-        confirm = messagebox.askyesno("Confirm", "Are you sure you want to delete your account?")
-        if confirm:
-            response = self.stub.DeleteAccount(chat_pb2.DeleteAccountRequest(username=self.username, password=self.password))
-            messagebox.showinfo("Account Deletion", response.message)
-            if response.status == "success":
-                self.show_login_window()
-
-    def listen_for_messages(self):
-        """Listen for incoming real-time messages."""
-        try:
-            for message in self.stub.ListenForMessages(chat_pb2.ListenForMessagesRequest(username=self.username)):
-                self.display_message(f"\n[New Message] {message.sender}: {message.message}\n")
-        except grpc.RpcError as e:
-            # self.display_message("[Server disconnected]\n")
-            print("[Warning] Lost connection to ListenForMessages stream: ", e)
-            self.server_disconnected.set()
-
-    def listen_for_server_info(self):
-        while not self.server_disconnected.is_set():
-            try:
-                response = self.stub.GetReplicaAddresses(Empty())
-                if response.replica_addresses != self.replica_addresses:
-                    print("[System] Replica list updated:", response.replica_addresses)
-                    self.replica_addresses = list(response.replica_addresses)
-            except grpc.RpcError as e:
-                print("[Warning] Failed to fetch replica list:", e)
-                self.server_disconnected.set()
-                break
-            time.sleep(2)  # Polling interval (in seconds)
-
-    def monitor_connection(self):
-        while True:
-            if self.server_disconnected.is_set():
-                print("[System] Attempting to reconnect to a new leader...")
-
-                for address in self.replica_addresses:
-                    try:
-                        new_channel = grpc.insecure_channel(address)
-                        new_stub = chat_pb2_grpc.ChatServiceStub(new_channel)
-                        response = new_stub.WhoIsLeader(Empty())
-                        leader_addr = response.leader_address
-
-                        self.channel = grpc.insecure_channel(leader_addr)
-                        self.stub = chat_pb2_grpc.ChatServiceStub(self.channel)
-
-                        print(f"[System] Reconnected to new leader: {leader_addr}")
-
-                        # Clear the flag and restart threads
-                        self.server_disconnected.clear()
-                        threading.Thread(target=self.listen_for_messages, daemon=True).start()
-                        threading.Thread(target=self.listen_for_server_info, daemon=True).start()
-                        break
-
-                    except grpc.RpcError:
-                        continue
-
-                time.sleep(3)  # wait before retrying in case all replicas fail
-            else:
-                time.sleep(1)
-            
-
-    def display_message(self, msg):
-        """Display a message in the chat window."""
-        self.chat_display.config(state=tk.NORMAL)
-        self.chat_display.insert(tk.END, msg)
-        self.chat_display.config(state=tk.DISABLED)
-
-    def logout(self):
-        """Logout the user and display the login screen."""
-        response = self.stub.Logout(chat_pb2.LogoutRequest(username=self.username))
-        if response.status == "success":
-            self.show_login_window()
+        resp = self.stub.AcceptMatch(pb.AcceptMatchRequest(username=self.username, game_id=game_id))
+        if resp.status == "success":
+            self.game_id = game_id
+            self.game_screen()
         else:
-            messagebox.showerror("Error", response.message)
+            messagebox.showerror("Error", resp.message)
+
+    def game_screen(self):
+        self.clear_window()
+        self.root.title(f"Game - {self.username}")
+
+        self.info_box = tk.Text(self.root, height=10, width=50, state=tk.DISABLED)
+        self.info_box.pack()
+
+        self.card_entry = tk.Entry(self.root)
+        self.card_entry.pack()
+
+        tk.Button(self.root, text="Play Card(s)", command=self.play_card).pack()
+        tk.Button(self.root, text="Pass Turn", command=self.pass_turn).pack()
+        tk.Button(self.root, text="Quit Game", command=self.quit_game).pack()
+
+        self.refresh_game_state()
+        self.poll_thread = threading.Thread(target=self.poll_game_state, daemon=True)
+        self.poll_thread.start()
+
+    def poll_game_state(self):
+        while self.game_id:
+            self.refresh_game_state()
+            time.sleep(2)
+
+    def refresh_game_state(self):
+        try:
+            resp = self.stub.GetGameState(pb.GameStateRequest(game_id=self.game_id))
+            self.info_box.config(state=tk.NORMAL)
+            self.info_box.delete("1.0", tk.END)
+
+            self.info_box.insert(tk.END, f"Current Turn: {resp.current_turn}\n")
+            self.info_box.insert(tk.END, f"Last Played: {resp.last_played_cards}\n")
+            self.info_box.insert(tk.END, f"Time left: {resp.countdown_seconds}s\n\n")
+
+            for p in resp.players:
+                line = f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}, Connected: {p.is_connected}\n"
+                if p.username == self.username:
+                    line += f"Your Hand: {p.cards}\n"
+                self.info_box.insert(tk.END, line)
+
+            if resp.game_over:
+                self.info_box.insert(tk.END, f"\nGame Over! Winner: {resp.winner}\n")
+                self.game_id = None
+
+            self.info_box.config(state=tk.DISABLED)
+        except grpc.RpcError:
+            pass
+
+    def play_card(self):
+        try:
+            card_str = self.card_entry.get()
+            cards = list(map(int, card_str.strip().split(",")))
+            resp = self.stub.PlayCard(pb.PlayCardRequest(username=self.username, game_id=self.game_id, cards=cards))
+            messagebox.showinfo("Result", resp.message)
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
+    def pass_turn(self):
+        resp = self.stub.PassTurn(pb.GameActionRequest(username=self.username, game_id=self.game_id))
+        messagebox.showinfo("Pass", resp.message)
+
+    def quit_game(self):
+        resp = self.stub.QuitGame(pb.GameActionRequest(username=self.username, game_id=self.game_id))
+        self.game_id = None
+        messagebox.showinfo("Quit", resp.message)
+        self.home_screen()
 
     def clear_window(self):
-        """Clear all widgets in the window."""
         for widget in self.root.winfo_children():
             widget.destroy()
 
-    def handle_close(self):
-        """Handles the window close event by sending a logout request before exiting."""
-        if self.username:
-            try:
-                self.stub.Logout(chat_pb2.LogoutRequest(username=self.username))
-            except grpc.RpcError:
-                pass  # Ignore errors if the server is unreachable
-
-        self.channel.close()  # Properly close the gRPC channel
-        self.root.destroy()  # Close the Tkinter window
-
-
 if __name__ == "__main__":
+    def parse_args():
+        import argparse
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--host", default="127.0.0.1")
+        parser.add_argument("--port", type=int, default=50051)
+        return parser.parse_args()
+
     args = parse_args()
     root = tk.Tk()
-    app = ChatGUI(root, args)
+    app = CardGameGUI(root, args)
     root.mainloop()
 
 # python gui.py --host=192.168.1.10 --port=50051

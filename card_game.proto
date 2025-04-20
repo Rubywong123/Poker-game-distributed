@@ -1,0 +1,112 @@
+syntax = "proto3";
+import "google/protobuf/empty.proto";
+
+service CardGameService {
+  rpc Login(LoginRequest) returns (Response);
+  rpc Logout(LogoutRequest) returns (Response);
+  rpc DeleteAccount(DeleteAccountRequest) returns (Response);
+
+  // Matchmaking
+  rpc StartMatch(MatchRequest) returns (Response);
+  rpc CancelMatch(MatchCancelRequest) returns (Response);
+  rpc AcceptMatch(AcceptMatchRequest) returns (Response);
+
+  // Game Play
+  rpc PlayCard(PlayCardRequest) returns (Response);
+  rpc PassTurn(GameActionRequest) returns (Response);
+  rpc QuitGame(GameActionRequest) returns (Response);
+  rpc GetGameState(GameStateRequest) returns (GameStateResponse);
+
+  // Sync & Replication
+  rpc Heartbeat(HeartbeatRequest) returns (Response);
+  rpc SyncData(SyncDataRequest) returns (SyncDataResponse);
+  rpc FollowerSync(FollowerSyncDataRequest) returns (Response);
+  rpc WhoIsLeader(google.protobuf.Empty) returns (LeaderInfoResponse);
+}
+
+// User & Auth
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LogoutRequest {
+  string username = 1;
+}
+
+message DeleteAccountRequest {
+  string username = 1;
+  string password = 2;
+}
+
+// Matchmaking
+message MatchRequest {
+  string username = 1;
+  int32 num_players = 2;
+}
+
+message MatchCancelRequest {
+  string username = 1;
+}
+
+message AcceptMatchRequest {
+  string username = 1;
+  string game_id = 2;
+}
+
+// Game Actions
+message PlayCardRequest {
+  string username = 1;
+  string game_id = 2;
+  repeated int32 cards = 3;
+}
+
+message GameActionRequest {
+  string username = 1;
+  string game_id = 2;
+}
+
+// Game State
+message GameStateRequest {
+  string game_id = 1;
+}
+
+message PlayerInfo {
+  string username = 1;
+  int32 card_count = 2;
+  double win_rate = 3;
+  repeated int32 cards = 4;
+  bool is_current_turn = 5;
+  bool is_connected = 6;
+}
+
+message GameStateResponse {
+  string status = 1;
+  string message = 2;
+  string current_turn = 3;
+  repeated int32 last_played_cards = 4;
+  repeated PlayerInfo players = 5;
+  int32 countdown_seconds = 6;
+  bool game_over = 7;
+  string winner = 8;
+}
+
+// Leader Election & Sync (unchanged from your original)
+message HeartbeatRequest {}
+message FollowerSyncDataRequest {
+  string leader_address = 1;
+}
+message SyncDataRequest {
+  string replica_address = 1;
+}
+message SyncDataResponse {
+  string status = 1;
+}
+message LeaderInfoResponse {
+  string leader_address = 1;
+  bool is_leader = 2;
+}
+message Response {
+  string status = 1;
+  string message = 2;
+}

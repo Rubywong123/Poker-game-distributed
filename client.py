@@ -1,8 +1,10 @@
 import grpc
-import chat_pb2
-import chat_pb2_grpc
 import threading
+import time
 from argparse import ArgumentParser
+
+import card_game_pb2 as pb
+import card_game_pb2_grpc as stub
 
 def parse_args():
     parser = ArgumentParser()
@@ -10,99 +12,120 @@ def parse_args():
     parser.add_argument("--port", default=50051, help="Port number")
     return parser.parse_args()
 
-def listen_for_messages(stub, username):
-    """ Background thread that listens for real-time messages. """
-    try:
-        for message in stub.ListenForMessages(chat_pb2.ListenForMessagesRequest(username=username)):
-            print(f"\n[New Message] {message.sender}: {message.message}\n")
-    except grpc.RpcError as e:
-        print(f"[Server disconnected]: {e}")
-        exit()
+class CardGameClient:
+    def __init__(self, channel):
+        self.stub = stub.CardGameServiceStub(channel)
+        self.username = None
+        self.game_id = None
 
-def run(args):
-    channel = grpc.insecure_channel(f"{args.host}:{args.port}")
-    stub = chat_pb2_grpc.ChatServiceStub(channel)
+    def login(self):
+        self.username = input("Username: ")
+        password = input("Password: ")
+        response = self.stub.Login(pb.LoginRequest(username=self.username, password=password))
+        print(response.message)
+        return response.status == "success"
 
-    print("Welcome to the Chat App!")
-    
-    username = input("Enter username: ")
-    password = input("Enter password: ")
+    def logout(self):
+        if self.username:
+            self.stub.Logout(pb.LogoutRequest(username=self.username))
+            print("Logged out.")
 
-    login_response = stub.Login(chat_pb2.LoginRequest(username=username, password=password))
-    if login_response.status != "success":
-        print("Login failed:", login_response.message)
-        return
+    def start_match(self):
+        n = int(input("Number of players (2-4): "))
+        response = self.stub.StartMatch(pb.MatchRequest(username=self.username, num_players=n))
+        print(response.message)
 
-    print("Login successful! Listening for new messages...")
-    
-    threading.Thread(target=listen_for_messages, args=(stub, username), daemon=True).start()
+    def accept_match(self):
+        gid = input("Enter game ID to accept: ")
+        response = self.stub.AcceptMatch(pb.AcceptMatchRequest(username=self.username, game_id=gid))
+        print(response.message)
+        if response.status == "success":
+            self.game_id = gid
 
-    while True:
-        print("\nOptions:")
-        print("1. List accounts")
-        print("2. Send message")
-        print("3. Read messages")
-        print("4. Delete message")
-        print("5. Delete account")
-        print("6. Exit")
+    def get_game_state(self):
+        if not self.game_id:
+            print("Not in a game.")
+            return
+        resp = self.stub.GetGameState(pb.GameStateRequest(game_id=self.game_id))
+        print(f"\nGame ID: {self.game_id}")
+        print(f"Current Turn: {resp.current_turn}")
+        for p in resp.players:
+            print(f"Player: {p.username} | Cards: {p.card_count} | Connected: {p.is_connected} | Win Rate: {p.win_rate:.2f}")
+            if p.username == self.username:
+                print(f"Your hand: {p.cards}")
+        if resp.last_played_cards:
+            print("Last played:", resp.last_played_cards)
+        if resp.game_over:
+            print(f"\nGame Over! Winner: {resp.winner}")
 
-        choice = input("Enter choice: ")
-        
-        if choice == "1":
-            response = stub.ListAccounts(chat_pb2.ListAccountsRequest(page_num=1))
-            print("Accounts:", response.usernames)
+    def play_card(self):
+        if not self.game_id:
+            print("Not in a game.")
+            return
+        try:
+            cards = list(map(int, input("Enter cards to play (comma-separated): ").split(",")))
+        except ValueError:
+            print("Invalid card list.")
+            return
+        resp = self.stub.PlayCard(pb.PlayCardRequest(username=self.username, game_id=self.game_id, cards=cards))
+        print(resp.message)
 
-        elif choice == "2":
-            recipient = input("Recipient username: ")
-            message = input("Message: ")
-            response = stub.SendMessage(chat_pb2.SendMessageRequest(username=username, recipient=recipient, message=message))
-            print(response.status, response.message)
+    def pass_turn(self):
+        if not self.game_id:
+            print("Not in a game.")
+            return
+        resp = self.stub.PassTurn(pb.GameActionRequest(username=self.username, game_id=self.game_id))
+        print(resp.message)
 
-        elif choice == "3":
-            try:
-                limit = int(input("Enter the number of messages to retrieve (0-10): "))
-                if limit < 0 or limit > 10:
-                    print("Please enter a number between 0 and 10.")
-                    continue
-            except ValueError:
-                print("Invalid input. Please enter a valid number.")
-                continue
+    def quit_game(self):
+        if not self.game_id:
+            print("Not in a game.")
+            return
+        resp = self.stub.QuitGame(pb.GameActionRequest(username=self.username, game_id=self.game_id))
+        print(resp.message)
+        self.game_id = None
 
-            response = stub.ReadMessages(chat_pb2.ReadMessagesRequest(username=username, limit=limit))
+    def run(self):
+        if not self.login():
+            return
 
-            if response.messages:
-                for msg in response.messages:
-                    print(f"From {msg.sender}: {msg.message}")
-            else:
-                print("No messages found.")
+        try:
+            while True:
+                print("\nOptions:")
+                print("1. Start Match")
+                print("2. Accept Match")
+                print("3. View Game State")
+                print("4. Play Card")
+                print("5. Pass Turn")
+                print("6. Quit Game")
+                print("7. Logout and Exit")
 
-        elif choice == "4":
-            recipient = input("Recipient username: ")
-            response = stub.DeleteMessage(chat_pb2.DeleteMessageRequest(username=username, recipient=recipient))
-            print(response.status, response.message)
-
-        elif choice == "5":
-            confirm = input("Are you sure you want to delete your account? (yes/no): ")
-            if confirm.lower() == "yes":
-                response = stub.DeleteAccount(chat_pb2.DeleteAccountRequest(username=username, password=password))
-                print(response.status, response.message)
-                if response.status == "success":
-                    # send logout request
-                    response = stub.Logout(chat_pb2.LogoutRequest(username=username))
-                    if response.status == "success":
-                        print("Logged out successfully.")
-                        break
-
-        elif choice == "6":
-            response = stub.Logout(chat_pb2.LogoutRequest(username=username))
-            if response.status == "success":
-                print("Logged out successfully.")
-                break
+                choice = input("Choose option: ")
+                if choice == "1":
+                    self.start_match()
+                elif choice == "2":
+                    self.accept_match()
+                elif choice == "3":
+                    self.get_game_state()
+                elif choice == "4":
+                    self.play_card()
+                elif choice == "5":
+                    self.pass_turn()
+                elif choice == "6":
+                    self.quit_game()
+                elif choice == "7":
+                    self.logout()
+                    break
+                else:
+                    print("Invalid option.")
+        except KeyboardInterrupt:
+            self.logout()
 
 if __name__ == "__main__":
     args = parse_args()
-
-    run(args)
+    channel = grpc.insecure_channel(f"{args.host}:{args.port}")
+    client = CardGameClient(channel)
+    client.run()
 
 # python client.py --host=192.168.1.10 --port=50051
 
