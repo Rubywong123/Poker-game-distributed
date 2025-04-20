@@ -92,10 +92,12 @@ class CardGameService(stub.CardGameServiceServicer):
         if num not in self.match_queue:
             return pb.Response(status="error", message="Invalid player count")
 
-        self.match_queue[num].append(request.username)
+        self.match_queue[num].append((request.username, context))
+
         if len(self.match_queue[num]) == num:
             game_id = str(uuid.uuid4())[:8]
-            players = self.match_queue[num][:]
+            players = [entry[0] for entry in self.match_queue[num]]
+            response_contexts = [entry[1] for entry in self.match_queue[num]]
             self.match_queue[num] = []
 
             cards = list(range(10)) * 4
@@ -116,6 +118,9 @@ class CardGameService(stub.CardGameServiceServicer):
 
             self.storage.create_game(game_id)
             self.storage.update_game_turn(game_id, players[0])
+
+            for ctx in response_contexts:
+                ctx.set_trailing_metadata((('game-id', game_id),))
 
             return pb.Response(status="success", message=f"Game ready! ID: {game_id}")
 
