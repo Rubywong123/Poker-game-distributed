@@ -116,22 +116,24 @@ class CardGameGUI:
 
     def refresh_game_state(self):
         try:
-            resp = self.stub.GetGameState(pb.GameStateRequest(game_id=self.game_id))
+            resp = self.stub.GetGameState(pb.GameStateRequest(game_id=self.game_id, username=self.username))
             self.info_box.config(state=tk.NORMAL)
             self.info_box.delete("1.0", tk.END)
 
             self.info_box.insert(tk.END, f"Current Turn: {resp.current_turn}\n")
             self.info_box.insert(tk.END, f"Last Played: {resp.last_played_cards}\n")
             self.info_box.insert(tk.END, f"Time left: {resp.countdown_seconds}s\n\n")
-
             for p in resp.players:
-                line = f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}, Connected: {p.is_connected}\n"
                 if p.username == self.username:
-
-                    breakpoint()
                     hand_str = ', '.join(map(str, p.cards))
-                    line += f"Your Hand: {hand_str}\n"
+                    line = (
+                        f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}, Connected: {p.is_connected}\n"
+                        f"Your Hand: {hand_str}\n"
+                    )
+                else:
+                    line = f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}, Connected: {p.is_connected}\n"
                 self.info_box.insert(tk.END, line)
+
 
             if resp.game_over:
                 self.info_box.insert(tk.END, f"\nGame Over! Winner: {resp.winner}\n")
