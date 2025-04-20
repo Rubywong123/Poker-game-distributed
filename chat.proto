@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+
+service ChatService {
+  rpc Login(LoginRequest) returns (Response);
+  rpc Logout(LogoutRequest) returns (Response);
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+  rpc SendMessage(SendMessageRequest) returns (Response);
+  rpc ReadMessages(ReadMessagesRequest) returns (ReadMessagesResponse);
+  rpc DeleteMessage(DeleteMessageRequest) returns (Response);
+  rpc DeleteAccount(DeleteAccountRequest) returns (Response);
+  rpc ListenForMessages(ListenForMessagesRequest) returns (stream Message);
+
+  // Coordination services
+  rpc ReplicateMessage(ReplicateMessageRequest) returns (Response);
+  rpc Heartbeat(HeartbeatRequest) returns (Response);  // Leader health check
+  rpc LeaderElection(LeaderElectionRequest) returns (Response);  // Deprecated or optional
+  
+  rpc GetReplicaAddresses(google.protobuf.Empty) returns (ReplicaListResponse);
+  rpc WhoIsLeader(google.protobuf.Empty) returns (LeaderInfoResponse);
+
+  rpc SyncData(SyncDataRequest) returns (SyncDataResponse);
+  rpc FollowerSync(FollowerSyncDataRequest) returns (Response);
+
+  // New leader election methods
+  rpc StartElection(ElectionRequest) returns (ElectionResponse);
+  rpc AnnounceLeader(CoordinatorMessage) returns (Response);
+}
+
+// ===== Request/Response Messages =====
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LogoutRequest {
+  string username = 1;
+}
+
+message ListAccountsRequest {
+  int32 page_num = 1;
+}
+
+message ListAccountsResponse {
+  string status = 1;
+  repeated string usernames = 2;
+}
+
+message SendMessageRequest {
+  string username = 1;
+  string recipient = 2;
+  string message = 3;
+}
+
+message ReadMessagesRequest {
+  string username = 1;
+  int32 limit = 2;
+}
+
+message ReadMessagesResponse {
+  string status = 1;
+  repeated Message messages = 2;
+}
+
+message Message {
+  int64 id = 1;
+  string sender = 2;
+  string message = 3;
+}
+
+message DeleteMessageRequest {
+  string username = 1;
+  string recipient = 2;
+}
+
+message DeleteAccountRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message ListenForMessagesRequest {
+  string username = 1;
+}
+
+message ReplicateMessageRequest {
+  Message message = 1;
+  string recipient = 2;
+}
+
+message Response {
+  string status = 1;
+  string message = 2;
+}
+
+// ===== Heartbeat & Leader Election =====
+
+message HeartbeatRequest {}
+
+message LeaderElectionRequest {
+  string requesting_server_id = 1;
+  string leader_id = 2;
+}
+
+message ElectionRequest {
+  string candidate_address = 1;
+  int32 candidate_port = 2;
+}
+
+message ElectionResponse {
+  string status = 1;
+}
+
+message CoordinatorMessage {
+  string new_leader_address = 1;
+}
+
+// ===== SyncData Messages =====
+
+message FollowerSyncDataRequest {
+  string leader_address = 1;
+}
+
+message SyncDataRequest {
+  string replica_address = 1;
+}
+
+message SyncDataResponse {
+  string status = 1;
+  repeated string replica_addresses = 2;
+  repeated MessageData messages = 3;
+  repeated UserData users = 4;
+  repeated string online_usernames = 5;
+}
+
+message MessageData {
+  int64 id = 1;
+  string sender = 2;
+  string recipient = 3;
+  string message = 4;
+  string status = 5;
+}
+
+message UserData {
+  string username = 1;
+  bytes password_hash = 2;
+}
+
+message ReplicaListResponse {
+  repeated string replica_addresses = 1;
+}
+
+message LeaderInfoResponse {
+  string leader_address = 1;
+  bool is_leader = 2;
+}
