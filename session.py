@@ -1,6 +1,24 @@
 import random
 import time
 import threading
+from collections import Counter
+
+def get_pattern_type(cards):
+    counter = Counter(cards)
+    counts = sorted(counter.values(), reverse=True)
+    
+    if len(cards) == 1:
+        return "single", cards[0]
+    elif len(cards) == 2 and counts == [2]:
+        return "pair", cards[0]
+    elif len(cards) == 3 and counts == [3]:
+        return "triple", cards[0]
+    elif len(cards) == 4 and counts == [3, 1]:
+        return "triple_plus_one", [k for k, v in counter.items() if v == 3][0]
+    elif len(cards) == 4 and counts == [4]:
+        return "bomb", cards[0]
+    else:
+        return "invalid", None
 
 class GameSession:
     def __init__(self, game_id, players):
@@ -9,6 +27,7 @@ class GameSession:
         self.hands = {p: [] for p in players}
         self.current_turn_index = 0
         self.last_played = []
+        self.last_played_player = None
         self.winner = None
         self.quit_players = set()
         self.turn_start_time = time.time()
@@ -36,11 +55,28 @@ class GameSession:
         if player != self.get_current_player():
             return False, "Not your turn."
 
-        self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
-        while self.players[self.current_turn_index] in self.quit_players:
-            self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
+        original_turn = self.current_turn_index
 
-        self.turn_start_time = time.time() 
+        # Advance to the next active player
+        while True:
+            self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
+            next_player = self.players[self.current_turn_index]
+            if next_player not in self.quit_players:
+                break
+            if self.current_turn_index == original_turn:
+                # Only one player left
+                self.winner = player
+                return True, f"{player} wins by default!"
+
+        self.turn_start_time = time.time()
+
+        # If everyone else passed and it's back to the last player who played,
+        # reset the round
+        if self.players[self.current_turn_index] == self.last_played_player:
+            self.last_played = []
+            self.last_played_player = None
+            return True, f"Everyone else passed. {self.get_current_player()} starts a new round."
+
         return True, f"{player} passed the turn."
 
     def _game_loop(self):
@@ -101,23 +137,39 @@ class GameSession:
             "game_over": self.winner is not None
         }
     
-    def is_valid_play(self, cards):
-        if not self.last_played:
-            return True  # Any card is valid if nothing has been played
-        return sum(cards) > sum(self.last_played)  # Example rule: higher total value wins
+    def is_valid_play(self, cards, player):
+        if not self.last_played or player == self.last_played_player:
+            return get_pattern_type(cards)[0] != "invalid"  # allow any valid pattern to start round
+
+        current_type, current_rank = get_pattern_type(cards)
+        previous_type, previous_rank = get_pattern_type(self.last_played)
+
+        if current_type == "invalid":
+            return False
+
+        # Bomb beats anything except higher bomb
+        if current_type == "bomb":
+            if previous_type != "bomb":
+                return True
+            else:
+                return current_rank > previous_rank
+
+        # Must match pattern and be higher rank
+        return current_type == previous_type and current_rank > previous_rank
     
     def play_cards(self, player, cards):
         if player != self.get_current_player():
             return False, "Not your turn."
         if not all(c in self.hands[player] for c in cards):
             return False, "You don't have those cards."
-        if not self.is_valid_play(cards):
-            return False, "Play must beat the previous cards."
+        if not self.is_valid_play(cards, player):
+            return False, "Invalid play: must beat previous play with same number and higher rank"
         
         for c in cards:
             self.hands[player].remove(c)
         
         self.last_played = cards
+        self.last_played_player = player
         
         # Check for win condition
         if len(self.hands[player]) == 0:
@@ -150,6 +202,9 @@ class GameSession:
             self.winner = active_players[0]
             
         return True, f"{player} quit the game"
+    
+    def quit_game(self, player):
+        return self.player_quit(player)
         
     def update_countdown(self, seconds_remaining):
         self.countdown = seconds_remaining

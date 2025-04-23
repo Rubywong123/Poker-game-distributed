@@ -112,7 +112,12 @@ class CardGameGUI:
     def poll_game_state(self):
         while self.game_id:
             self.refresh_game_state()
-            time.sleep(2)
+
+            if not self.game_id:  # Set to None in refresh_game_state on game over
+                time.sleep(3)
+                self.home_screen()
+                break
+            time.sleep(0.5)
 
     def refresh_game_state(self):
         try:
@@ -125,7 +130,7 @@ class CardGameGUI:
             self.info_box.insert(tk.END, f"Time left: {resp.countdown_seconds}s\n\n")
             for p in resp.players:
                 if p.username == self.username:
-                    hand_str = ', '.join(map(str, p.cards))
+                    hand_str = ', '.join(map(str, sorted(p.cards)))
                     line = (
                         f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}, Connected: {p.is_connected}\n"
                         f"Your Hand: {hand_str}\n"
