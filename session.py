@@ -1,4 +1,6 @@
 import random
+import time
+import threading
 
 class GameSession:
     def __init__(self, game_id, players):
@@ -9,12 +11,16 @@ class GameSession:
         self.last_played = []
         self.winner = None
         self.quit_players = set()
-        self.countdown = 20
+        self.turn_start_time = time.time()
+
         
         self.init_cards()
+
+        self.game_loop_thread = threading.Thread(target=self._game_loop, daemon=True)
+        self.game_loop_thread.start()
     
     def init_cards(self):
-        cards = list(range(1, 11)) * 4  # 4 copies of 1-10 => 40 cards
+        cards = list(range(1, 11)) * 4 
         random.shuffle(cards)
         n = len(self.players)
         base = len(cards) // n
@@ -25,12 +31,41 @@ class GameSession:
             take = base + (1 if i < extras else 0)
             self.hands[player] = cards[idx:idx+take]
             idx += take
-    
+
+    def pass_turn(self, player):
+        if player != self.get_current_player():
+            return False, "Not your turn."
+
+        self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
+        while self.players[self.current_turn_index] in self.quit_players:
+            self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
+
+        self.turn_start_time = time.time() 
+        return True, f"{player} passed the turn."
+
+    def _game_loop(self):
+        while not self.winner:
+            time.sleep(1)
+
+            now = time.time()
+            elapsed = now - self.turn_start_time
+            self.countdown = max(0, int(20 - elapsed))
+
+            if elapsed >= 20:
+                current_player = self.get_current_player()
+                print(f"[AutoPass] {current_player} took too long. Auto-passing.")
+                self.pass_turn(current_player)
+                self.turn_start_time = time.time()
+
+
     def get_current_player(self):
         return self.players[self.current_turn_index]
     
     def get_game_state(self):
-        # Return in the original format expected by the GUI
+        max_turn_duration = 20
+        time_elapsed = time.time() - self.turn_start_time
+        countdown = max(0, int(max_turn_duration - time_elapsed))
+
         return {
             "game_id": self.game_id,
             "current_turn": self.get_current_player(),
@@ -39,10 +74,9 @@ class GameSession:
             "hands": self.hands.copy(),
             "players": self.players[:],
             "quit_players": list(self.quit_players),
-            "countdown_seconds": self.countdown
+            "countdown_seconds": countdown
         }
     
-    # For server compatibility - not used by GUI directly
     def get_server_state(self, requesting_player=None):
         player_info = []
         for player in self.players:
@@ -94,10 +128,8 @@ class GameSession:
         self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
         while self.players[self.current_turn_index] in self.quit_players:
             self.current_turn_index = (self.current_turn_index + 1) % len(self.players)
-        
-        # Reset countdown
-        self.countdown = 20
-            
+
+        self.turn_start_time = time.time()
         return True, "Cards played successfully"
         
     def player_quit(self, player):

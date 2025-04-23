@@ -167,7 +167,7 @@ class CardGameService(stub.CardGameServiceServicer):
             current_turn=state["current_turn"],
             last_played_cards=state["last_played"],
             players=players,
-            countdown_seconds=20,
+            countdown_seconds=state["countdown_seconds"],
             game_over=bool(state["winner"]),
             winner=state["winner"] or ""
         )
