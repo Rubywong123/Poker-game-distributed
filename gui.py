@@ -4,6 +4,7 @@ import grpc
 import threading
 import time
 from argparse import ArgumentParser
+from google.protobuf.empty_pb2 import Empty
 
 import card_game_pb2 as pb
 import card_game_pb2_grpc as stub
@@ -33,12 +34,33 @@ class CardGameGUI:
 
         tk.Button(self.root, text="Login", command=self.login).pack()
 
+    def update_leader_stub(self):
+        try:
+            response = self.stub.WhoIsLeader(Empty())
+            if response.is_leader:
+                print(f"[GUI] Current node is leader: {response.leader_address}")
+                return  # nothing to do
+            else:
+                print(f"[GUI] Switching to new leader at {response.leader_address}")
+                self.channel = grpc.insecure_channel(response.leader_address)
+                self.stub = stub.CardGameServiceStub(self.channel)
+        except grpc.RpcError as e:
+            print("[GUI] Failed to get leader info:", e)
+
+    def start_leader_monitor(self):
+        def monitor():
+            while True:
+                time.sleep(5)
+                self.update_leader_stub()
+        threading.Thread(target=monitor, daemon=True).start()
+
     def login(self):
         username = self.username_entry.get().strip()
         password = self.password_entry.get().strip()
         resp = self.stub.Login(pb.LoginRequest(username=username, password=password))
         if resp.status == "success":
             self.username = username
+            self.start_leader_monitor()
             self.home_screen()
         else:
             messagebox.showerror("Login Failed", resp.message)
@@ -56,6 +78,18 @@ class CardGameGUI:
 
         self.status_label = tk.Label(self.root, text="")
         self.status_label.pack()
+
+    
+
+    def with_leader_retry(rpc_fn):
+        def wrapper(self, *args, **kwargs):
+            try:
+                return rpc_fn(self, *args, **kwargs)
+            except grpc.RpcError as e:
+                print("[GUI] RPC failed. Attempting to reconnect to leader...")
+                self.update_leader_stub()
+                return rpc_fn(self, *args, **kwargs)
+        return wrapper
 
     def start_match(self):
         try:
@@ -149,6 +183,7 @@ class CardGameGUI:
             print(e)
             pass
 
+    @with_leader_retry
     def play_card(self):
         try:
             card_str = self.card_entry.get()
@@ -158,10 +193,12 @@ class CardGameGUI:
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+    @with_leader_retry
     def pass_turn(self):
         resp = self.stub.PassTurn(pb.GameActionRequest(username=self.username, game_id=self.game_id))
         messagebox.showinfo("Pass", resp.message)
 
+    @with_leader_retry
     def quit_game(self):
         resp = self.stub.QuitGame(pb.GameActionRequest(username=self.username, game_id=self.game_id))
         self.game_id = None

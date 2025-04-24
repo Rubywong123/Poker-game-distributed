@@ -44,6 +44,18 @@ class CardGameService(stub.CardGameServiceServicer):
             self.leader_channel = grpc.insecure_channel(self.leader_address)
             self.leader_stub = stub.CardGameServiceStub(self.leader_channel)
 
+        # log entry
+        self.log = []  # List of (index, command_dict)
+        self.commit_index = -1
+        self.next_log_index = 0
+
+        # Raft state
+        self.current_term = 0
+        self.voted_for = None
+        self.state = "follower"  # or candidate or leader
+        self.last_heartbeat = time.time()
+        self.election_timeout = random.uniform(3, 5)
+
         threading.Thread(target=self.monitor_heartbeat, daemon=True).start()
 
     def monitor_heartbeat(self):
@@ -59,7 +71,95 @@ class CardGameService(stub.CardGameServiceServicer):
                     self.leader_stub.Heartbeat(pb.HeartbeatRequest())
                 except grpc.RpcError:
                     print("[Replica] Leader is down. Needs election handling here.")
+                    self.initiate_election()
             time.sleep(3)
+
+    def replicate_and_apply(self, command):
+        """
+        Leader: append command to log, replicate to followers, commit if majority ACKs.
+        """
+        if not self.is_leader:
+            return False, "Not the leader"
+
+        entry = (self.next_log_index, command)
+        self.log.append(entry)
+        self.next_log_index += 1
+
+        acks = 1  # count self
+
+        for replica in self.replicas:
+            try:
+                replica.AppendLog(pb.LogEntry(index=entry[0], command=command["type"], payload=str(command)))
+                acks += 1
+            except grpc.RpcError:
+                pass  # log failure
+
+        if acks >= (len(self.replicas) + 1) // 2 + 1:  # quorum
+            self.commit_index = entry[0]
+            return self.apply_command(command)
+        else:
+            return False, "Failed to replicate"
+        
+    def apply_command(self, command):
+        game_id = command["game_id"]
+        session = self.active_games.get(game_id)
+
+        if not session:
+            return False, "Game not found"
+
+        if command["type"] == "play_card":
+            return session.play_cards(command["username"], command["cards"])
+        elif command["type"] == "pass_turn":
+            return session.pass_turn(command["username"])
+        elif command["type"] == "quit_game":
+            return session.quit_game(command["username"])
+        return False, "Unknown command"
+
+    def forward_to_leader(self, rpc_name, request):
+        if self.is_leader:
+            return getattr(self, rpc_name)(request)
+
+        try:
+            stub_fn = getattr(self.leader_stub, rpc_name)
+            return stub_fn(request)
+        except grpc.RpcError:
+            return pb.Response(status="error", message="Leader unavailable")
+        
+    def initiate_election(self):
+        self.state = "candidate"
+        self.current_term += 1
+        self.voted_for = f"{self.ip}:{self.port}"
+        votes = 1
+        majority = (len(self.replica_addresses) + 1) // 2 + 1
+
+        for addr in self.replica_addresses:
+            try:
+                stub = stub.CardGameServiceStub(grpc.insecure_channel(addr))
+                res = stub.RequestVote(pb.VoteRequest(term=self.current_term, candidate_id=f"{self.ip}:{self.port}"))
+                if res.vote_granted:
+                    votes += 1
+            except grpc.RpcError:
+                continue
+
+        if votes >= majority:
+            print(f"[Election] Won with {votes} votes. Becoming leader.")
+            self.become_leader()
+        else:
+            print(f"[Election] Lost with {votes} votes.")
+            self.state = "follower"
+
+    def become_leader(self):
+        self.is_leader = True
+        self.state = "leader"
+        self.voted_for = None
+        self.last_heartbeat = time.time()
+
+        for addr in self.replica_addresses:
+            try:
+                stub = stub.CardGameServiceStub(grpc.insecure_channel(addr))
+                stub.AnnounceLeader(pb.CoordinatorMessage(new_leader_address=f"{self.ip}:{self.port}"))
+            except grpc.RpcError:
+                continue
 
     def Heartbeat(self, request, context):
         return pb.Response(status="alive", message="Heartbeat OK")
@@ -79,6 +179,16 @@ class CardGameService(stub.CardGameServiceServicer):
     def Logout(self, request, context):
         self.online_users.pop(request.username, None)
         return pb.Response(status="success", message="User logged out.")
+    
+    def AppendLog(self, request, context):
+        command = eval(request.payload)  # e.g., {"type": "play_card", ...}
+        self.log.append((request.index, command))
+
+        # Optional: apply immediately for now
+        if request.index > self.commit_index:
+            self.commit_index = request.index
+            self.apply_command(command)
+        return pb.Response(status="success", message="Appended")
 
     def DeleteAccount(self, request, context):
         response = self.storage.delete_account(request.username, request.password)
@@ -120,28 +230,59 @@ class CardGameService(stub.CardGameServiceServicer):
         return pb.Response(status="success", message="Joined game")
 
     def PlayCard(self, request, context):
-        session = self.active_games.get(request.game_id)
-        if not session:
-            return pb.Response(status="error", message="Game not found")
+        if not self.is_leader:
+            return self.forward_to_leader("PlayCard", request)
 
-        success, msg = session.play_cards(request.username, list(request.cards))
+        command = {
+            "type": "play_card",
+            "username": request.username,
+            "game_id": request.game_id,
+            "cards": list(request.cards)
+        }
+        success, msg = self.replicate_and_apply(command)
         return pb.Response(status="success" if success else "error", message=msg)
 
     def PassTurn(self, request, context):
+        if not self.is_leader:
+            # Forward to leader
+            return self.leader_stub.PassTurn(request)
+
         session = self.active_games.get(request.game_id)
         if not session:
             return pb.Response(status="error", message="Game not found")
 
         success, msg = session.pass_turn(request.username)
+
+        if success:
+            # replicate to replicas
+            for replica in self.replicas:
+                try:
+                    replica.PassTurn(request)
+                except grpc.RpcError as e:
+                    print(f"[Replication] Failed to replicate PassTurn to replica: {e}")
+
         return pb.Response(status="success" if success else "error", message=msg)
 
+
     def QuitGame(self, request, context):
+        if not self.is_leader:
+            return self.leader_stub.QuitGame(request)
+
         session = self.active_games.get(request.game_id)
         if not session:
             return pb.Response(status="error", message="Game not found")
 
-        session.quit_game(request.username)
-        return pb.Response(status="success", message="You quit and received a loss")
+        success, msg = session.quit_game(request.username)
+
+        if success:
+            for replica in self.replicas:
+                try:
+                    replica.QuitGame(request)
+                except grpc.RpcError as e:
+                    print(f"[Replication] Failed to replicate QuitGame to replica: {e}")
+
+        return pb.Response(status="success" if success else "error", message=msg)
+
 
     def GetGameState(self, request, context):
         session = self.active_games.get(request.game_id)
@@ -171,6 +312,28 @@ class CardGameService(stub.CardGameServiceServicer):
             game_over=bool(state["winner"]),
             winner=state["winner"] or ""
         )
+    
+    def RequestVote(self, request, context):
+        if request.term < self.current_term:
+            return pb.VoteResponse(term=self.current_term, vote_granted=False)
+
+        if self.voted_for is None or self.voted_for == request.candidate_id:
+            self.voted_for = request.candidate_id
+            self.current_term = request.term
+            self.state = "follower"
+            return pb.VoteResponse(term=self.current_term, vote_granted=True)
+
+        return pb.VoteResponse(term=self.current_term, vote_granted=False)
+
+
+    def AnnounceLeader(self, request, context):
+        print(f"[Election] New leader announced: {request.new_leader_address}")
+        self.leader_address = request.new_leader_address
+        self.leader_channel = grpc.insecure_channel(self.leader_address)
+        self.leader_stub = stub.CardGameServiceStub(self.leader_channel)
+        self.is_leader = False
+        self.state = "follower"
+        return pb.Response(status="success", message="Leader updated.")
 
 
 def serve(is_leader=False, leader_address=None, replica_addresses=None, port=50051):

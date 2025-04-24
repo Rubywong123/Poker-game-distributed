@@ -18,10 +18,15 @@ service CardGameService {
   rpc GetGameState(GameStateRequest) returns (GameStateResponse);
 
   // Sync & Replication
+  rpc AppendLog(LogEntry) returns (Response);
   rpc Heartbeat(HeartbeatRequest) returns (Response);
   rpc SyncData(SyncDataRequest) returns (SyncDataResponse);
   rpc FollowerSync(FollowerSyncDataRequest) returns (Response);
   rpc WhoIsLeader(google.protobuf.Empty) returns (LeaderInfoResponse);
+
+
+  rpc RequestVote(VoteRequest) returns (VoteResponse);
+  rpc AnnounceLeader(CoordinatorMessage) returns (Response);
 }
 
 // User & Auth
@@ -110,4 +115,24 @@ message LeaderInfoResponse {
 message Response {
   string status = 1;
   string message = 2;
+}
+
+message LogEntry {
+    int32 index = 1;
+    string command = 2;
+    string payload = 3;
+}
+
+message VoteRequest {
+  int32 term = 1;
+  string candidate_id = 2;
+}
+
+message VoteResponse {
+  int32 term = 1;
+  bool vote_granted = 2;
+}
+
+message CoordinatorMessage {
+  string new_leader_address = 1;
 }

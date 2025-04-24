@@ -85,6 +85,11 @@ class CardGameServiceStub(object):
                 request_serializer=card__game__pb2.GameStateRequest.SerializeToString,
                 response_deserializer=card__game__pb2.GameStateResponse.FromString,
                 _registered_method=True)
+        self.AppendLog = channel.unary_unary(
+                '/CardGameService/AppendLog',
+                request_serializer=card__game__pb2.LogEntry.SerializeToString,
+                response_deserializer=card__game__pb2.Response.FromString,
+                _registered_method=True)
         self.Heartbeat = channel.unary_unary(
                 '/CardGameService/Heartbeat',
                 request_serializer=card__game__pb2.HeartbeatRequest.SerializeToString,
@@ -104,6 +109,16 @@ class CardGameServiceStub(object):
                 '/CardGameService/WhoIsLeader',
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
                 response_deserializer=card__game__pb2.LeaderInfoResponse.FromString,
+                _registered_method=True)
+        self.RequestVote = channel.unary_unary(
+                '/CardGameService/RequestVote',
+                request_serializer=card__game__pb2.VoteRequest.SerializeToString,
+                response_deserializer=card__game__pb2.VoteResponse.FromString,
+                _registered_method=True)
+        self.AnnounceLeader = channel.unary_unary(
+                '/CardGameService/AnnounceLeader',
+                request_serializer=card__game__pb2.CoordinatorMessage.SerializeToString,
+                response_deserializer=card__game__pb2.Response.FromString,
                 _registered_method=True)
 
 
@@ -172,9 +187,15 @@ class CardGameServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
-    def Heartbeat(self, request, context):
+    def AppendLog(self, request, context):
         """Sync & Replication
         """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Heartbeat(self, request, context):
+        """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -192,6 +213,18 @@ class CardGameServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def WhoIsLeader(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RequestVote(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def AnnounceLeader(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -250,6 +283,11 @@ def add_CardGameServiceServicer_to_server(servicer, server):
                     request_deserializer=card__game__pb2.GameStateRequest.FromString,
                     response_serializer=card__game__pb2.GameStateResponse.SerializeToString,
             ),
+            'AppendLog': grpc.unary_unary_rpc_method_handler(
+                    servicer.AppendLog,
+                    request_deserializer=card__game__pb2.LogEntry.FromString,
+                    response_serializer=card__game__pb2.Response.SerializeToString,
+            ),
             'Heartbeat': grpc.unary_unary_rpc_method_handler(
                     servicer.Heartbeat,
                     request_deserializer=card__game__pb2.HeartbeatRequest.FromString,
@@ -269,6 +307,16 @@ def add_CardGameServiceServicer_to_server(servicer, server):
                     servicer.WhoIsLeader,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                     response_serializer=card__game__pb2.LeaderInfoResponse.SerializeToString,
+            ),
+            'RequestVote': grpc.unary_unary_rpc_method_handler(
+                    servicer.RequestVote,
+                    request_deserializer=card__game__pb2.VoteRequest.FromString,
+                    response_serializer=card__game__pb2.VoteResponse.SerializeToString,
+            ),
+            'AnnounceLeader': grpc.unary_unary_rpc_method_handler(
+                    servicer.AnnounceLeader,
+                    request_deserializer=card__game__pb2.CoordinatorMessage.FromString,
+                    response_serializer=card__game__pb2.Response.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -552,6 +600,33 @@ class CardGameService(object):
             _registered_method=True)
 
     @staticmethod
+    def AppendLog(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/CardGameService/AppendLog',
+            card__game__pb2.LogEntry.SerializeToString,
+            card__game__pb2.Response.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
     def Heartbeat(request,
             target,
             options=(),
@@ -649,6 +724,60 @@ class CardGameService(object):
             '/CardGameService/WhoIsLeader',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             card__game__pb2.LeaderInfoResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RequestVote(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/CardGameService/RequestVote',
+            card__game__pb2.VoteRequest.SerializeToString,
+            card__game__pb2.VoteResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def AnnounceLeader(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/CardGameService/AnnounceLeader',
+            card__game__pb2.CoordinatorMessage.SerializeToString,
+            card__game__pb2.Response.FromString,
             options,
             channel_credentials,
             insecure,
