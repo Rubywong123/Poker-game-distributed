@@ -158,6 +158,8 @@ class CardGameService(stub.CardGameServiceServicer):
             try:
                 stub = stub.CardGameServiceStub(grpc.insecure_channel(addr))
                 stub.AnnounceLeader(pb.CoordinatorMessage(new_leader_address=f"{self.ip}:{self.port}"))
+                self.leader_address = f"{self.ip}:{self.port}"
+                self.leader_stub = None
             except grpc.RpcError:
                 continue
 

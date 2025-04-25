@@ -35,17 +35,21 @@ class CardGameGUI:
         tk.Button(self.root, text="Login", command=self.login).pack()
 
     def update_leader_stub(self):
-        try:
-            response = self.stub.WhoIsLeader(Empty())
-            if response.is_leader:
-                print(f"[GUI] Current node is leader: {response.leader_address}")
-                return  # nothing to do
-            else:
-                print(f"[GUI] Switching to new leader at {response.leader_address}")
-                self.channel = grpc.insecure_channel(response.leader_address)
-                self.stub = stub.CardGameServiceStub(self.channel)
-        except grpc.RpcError as e:
-            print("[GUI] Failed to get leader info:", e)
+        known_ports = [50051, 50052, 50053]
+        for port in known_ports:
+            try:
+                channel = grpc.insecure_channel(f"127.0.0.1:{port}")
+                candidate_stub = stub.CardGameServiceStub(channel)
+                res = candidate_stub.WhoIsLeader(Empty())
+                if res.is_leader:
+                    print(f"[GUI] Switching to new leader at {res.leader_address}")
+                    self.channel = grpc.insecure_channel(res.leader_address)
+                    self.stub = stub.CardGameServiceStub(self.channel)
+                    return
+            except grpc.RpcError:
+                continue
+        print("[GUI] Failed to find a leader.")
+
 
     def start_leader_monitor(self):
         def monitor():
