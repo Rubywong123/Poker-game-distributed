@@ -208,3 +208,30 @@ class GameSession:
         
     def update_countdown(self, seconds_remaining):
         self.countdown = seconds_remaining
+
+    def serialize(self):
+        """Convert GameSession into a simple dictionary for syncing."""
+        return {
+            "game_id": self.game_id,
+            "players": self.players,
+            "hands": self.hands,
+            "current_turn_index": self.current_turn_index,
+            "last_played": self.last_played,
+            "last_played_player": self.last_played_player,
+            "winner": self.winner,
+            "quit_players": list(self.quit_players),
+            "turn_start_time": self.turn_start_time
+        }
+
+    @staticmethod
+    def deserialize(data):
+        """Create a GameSession from a dictionary."""
+        session = GameSession(data["game_id"], data["players"])
+        session.hands = data["hands"]
+        session.current_turn_index = data["current_turn_index"]
+        session.last_played = data["last_played"]
+        session.last_played_player = data["last_played_player"]
+        session.winner = data["winner"]
+        session.quit_players = set(data["quit_players"])
+        session.turn_start_time = data["turn_start_time"]
+        return session

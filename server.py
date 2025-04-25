@@ -9,7 +9,7 @@ import card_game_pb2 as pb
 import card_game_pb2_grpc as stub
 from storage import Storage
 from session import GameSession
-
+from google.protobuf.empty_pb2 import Empty
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -72,6 +72,8 @@ class CardGameService(stub.CardGameServiceServicer):
                 except grpc.RpcError:
                     print("[Replica] Leader is down. Needs election handling here.")
                     self.initiate_election()
+
+                self.pull_games_from_leader()
             time.sleep(3)
 
     def replicate_and_apply(self, command):
@@ -162,6 +164,23 @@ class CardGameService(stub.CardGameServiceServicer):
                 self.leader_stub = None
             except grpc.RpcError:
                 continue
+
+    def pull_games_from_leader(self):
+        if self.is_leader:
+            return  # no need to pull if already leader
+
+        try:
+            res = self.leader_stub.SyncAllGames(Empty())
+            if res.status == "success":
+                import json
+                games_data = json.loads(res.message)
+                self.active_games.clear()
+                for gid, session_dict in games_data.items():
+                    self.active_games[gid] = GameSession.deserialize(session_dict)
+                print("[Replica] Synced games from leader.")
+        except grpc.RpcError as e:
+            print(f"[Replica] Failed to pull games from leader: {e}")
+
 
     def Heartbeat(self, request, context):
         return pb.Response(status="alive", message="Heartbeat OK")
@@ -314,6 +333,18 @@ class CardGameService(stub.CardGameServiceServicer):
             game_over=bool(state["winner"]),
             winner=state["winner"] or ""
         )
+    
+    def SyncAllGames(self, request, context):
+        if not self.is_leader:
+            return pb.SyncResponse(status="error", message="Not leader")
+
+        import json
+        games_data = {gid: session.serialize() for gid, session in self.active_games.items()}
+        return pb.SyncResponse(
+            status="success",
+            message=json.dumps(games_data)  # send as a JSON string
+        )
+
     
     def RequestVote(self, request, context):
         if request.term < self.current_term:

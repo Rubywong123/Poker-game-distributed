@@ -120,6 +120,11 @@ class CardGameServiceStub(object):
                 request_serializer=card__game__pb2.CoordinatorMessage.SerializeToString,
                 response_deserializer=card__game__pb2.Response.FromString,
                 _registered_method=True)
+        self.SyncAllGames = channel.unary_unary(
+                '/CardGameService/SyncAllGames',
+                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+                response_deserializer=card__game__pb2.SyncResponse.FromString,
+                _registered_method=True)
 
 
 class CardGameServiceServicer(object):
@@ -230,6 +235,12 @@ class CardGameServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def SyncAllGames(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CardGameServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -317,6 +328,11 @@ def add_CardGameServiceServicer_to_server(servicer, server):
                     servicer.AnnounceLeader,
                     request_deserializer=card__game__pb2.CoordinatorMessage.FromString,
                     response_serializer=card__game__pb2.Response.SerializeToString,
+            ),
+            'SyncAllGames': grpc.unary_unary_rpc_method_handler(
+                    servicer.SyncAllGames,
+                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                    response_serializer=card__game__pb2.SyncResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -778,6 +794,33 @@ class CardGameService(object):
             '/CardGameService/AnnounceLeader',
             card__game__pb2.CoordinatorMessage.SerializeToString,
             card__game__pb2.Response.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SyncAllGames(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/CardGameService/SyncAllGames',
+            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            card__game__pb2.SyncResponse.FromString,
             options,
             channel_credentials,
             insecure,

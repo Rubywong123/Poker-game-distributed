@@ -27,6 +27,7 @@ service CardGameService {
 
   rpc RequestVote(VoteRequest) returns (VoteResponse);
   rpc AnnounceLeader(CoordinatorMessage) returns (Response);
+  rpc SyncAllGames(google.protobuf.Empty) returns (SyncResponse);
 }
 
 // User & Auth
@@ -136,3 +137,10 @@ message VoteResponse {
 message CoordinatorMessage {
   string new_leader_address = 1;
 }
+message SyncResponse {
+    string status = 1;
+    string message = 2;
+}
+
+
+

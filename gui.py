@@ -42,14 +42,18 @@ class CardGameGUI:
                 candidate_stub = stub.CardGameServiceStub(channel)
                 res = candidate_stub.WhoIsLeader(Empty())
                 if res.is_leader:
-                    print(f"[GUI] Switching to new leader at {res.leader_address}")
+                    print(f"[GUI] Current leader at {res.leader_address}")
+                    self.channel = grpc.insecure_channel(res.leader_address)
+                    self.stub = stub.CardGameServiceStub(self.channel)
+                    return
+                if res.leader_address:
+                    print(f"[GUI] Current leader at {res.leader_address}")
                     self.channel = grpc.insecure_channel(res.leader_address)
                     self.stub = stub.CardGameServiceStub(self.channel)
                     return
             except grpc.RpcError:
                 continue
         print("[GUI] Failed to find a leader.")
-
 
     def start_leader_monitor(self):
         def monitor():
