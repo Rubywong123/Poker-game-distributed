@@ -14,11 +14,13 @@ class CardGameGUI:
         self.root = root
         self.root.title("Card Game App")
 
+
         self.channel = grpc.insecure_channel(f"{args.host}:{args.port}")
         self.stub = stub.CardGameServiceStub(self.channel)
 
         self.username = None
         self.game_id = None
+        self.card_labels = []
 
         self.login_screen()
 
@@ -133,24 +135,6 @@ class CardGameGUI:
         else:
             messagebox.showerror("Error", resp.message)
 
-    def game_screen(self):
-        self.clear_window()
-        self.root.title(f"Game - {self.username}")
-
-        self.info_box = tk.Text(self.root, height=10, width=50, state=tk.DISABLED)
-        self.info_box.pack()
-
-        self.card_entry = tk.Entry(self.root)
-        self.card_entry.pack()
-
-        tk.Button(self.root, text="Play Card(s)", command=self.play_card).pack()
-        tk.Button(self.root, text="Pass Turn", command=self.pass_turn).pack()
-        tk.Button(self.root, text="Quit Game", command=self.quit_game).pack()
-
-        self.refresh_game_state()
-        self.poll_thread = threading.Thread(target=self.poll_game_state, daemon=True)
-        self.poll_thread.start()
-
     def poll_game_state(self):
         while self.game_id:
             self.refresh_game_state()
@@ -161,35 +145,89 @@ class CardGameGUI:
                 break
             time.sleep(0.5)
 
+    def game_screen(self):
+        self.clear_window()
+        if self.root.title() != f"Game - {self.username}":
+            self.root.title(f"Game - {self.username}")
+        self.opponent_frame = tk.Frame(self.root, pady=5)
+        self.opponent_frame.pack()
+        self.opponent_labels = []
+
+        self.info_frame = tk.Frame(self.root, padx=10, pady=10)
+        self.info_frame.pack()
+
+        self.turn_label = tk.Label(self.info_frame, font=("Helvetica", 14))
+        self.turn_label.pack()
+        self.played_label = tk.Label(self.info_frame, font=("Helvetica", 12))
+        self.played_label.pack()
+        self.time_label = tk.Label(self.info_frame, font=("Helvetica", 12))
+        self.time_label.pack()
+
+        self.card_frame = tk.Frame(self.root, pady=10)
+        self.card_frame.pack()
+
+        self.card_entry = tk.Entry(self.root)
+        self.card_entry.pack()
+        self.button_frame = tk.Frame(self.root, pady=10)
+        self.button_frame.pack()
+
+        tk.Button(self.button_frame, text="Play Card(s)", command=self.play_card, width=12).grid(row=0, column=0, padx=5)
+        tk.Button(self.button_frame, text="Pass Turn", command=self.pass_turn, width=12).grid(row=0, column=1, padx=5)
+        tk.Button(self.button_frame, text="Quit Game", command=self.quit_game, width=12).grid(row=0, column=2, padx=5)
+
+        self.refresh_game_state()
+        self.poll_thread = threading.Thread(target=self.poll_game_state, daemon=True)
+        self.poll_thread.start()
+
     def refresh_game_state(self):
         try:
             resp = self.stub.GetGameState(pb.GameStateRequest(game_id=self.game_id, username=self.username))
-            self.info_box.config(state=tk.NORMAL)
-            self.info_box.delete("1.0", tk.END)
+            self.turn_label.config(text=f"Current Turn: {resp.current_turn}")
+            self.played_label.config(text=f"Last Played: {resp.last_played_cards}")
+            self.time_label.config(text=f"Time Left: {resp.countdown_seconds}s")
 
-            self.info_box.insert(tk.END, f"Current Turn: {resp.current_turn}\n")
-            self.info_box.insert(tk.END, f"Last Played: {resp.last_played_cards}\n")
-            self.info_box.insert(tk.END, f"Time left: {resp.countdown_seconds}s\n\n")
-            for p in resp.players:
-                if p.username == self.username:
-                    hand_str = ', '.join(map(str, sorted(p.cards)))
-                    line = (
-                        f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}, Connected: {p.is_connected}\n"
-                        f"Your Hand: {hand_str}\n"
+            user_hand = sorted([p.cards for p in resp.players if p.username == self.username][0])
+
+            if len(self.card_labels) != len(user_hand):
+                for widget in self.card_frame.winfo_children():
+                    widget.destroy()
+                self.card_labels = []
+                for i, card in enumerate(user_hand):
+                    card_label = tk.Label(self.card_frame, text=str(card), borderwidth=2, relief="solid", width=4, height=2)
+                    card_label.grid(row=0, column=i, padx=5)
+                    self.card_labels.append(card_label)
+            else:
+                # Just update the card values
+                for i, card in enumerate(user_hand):
+                    self.card_labels[i].config(text=str(card))
+            
+            opponents = [p for p in resp.players if p.username != self.username]
+            if len(self.opponent_labels) != len(opponents):
+                for widget in self.opponent_frame.winfo_children():
+                    widget.destroy()
+                self.opponent_labels = []
+                for p in opponents:
+                    label = tk.Label(
+                        self.opponent_frame,
+                        text=f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}",
+                        font=("Helvetica", 11)
                     )
-                else:
-                    line = f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}, Connected: {p.is_connected}\n"
-                self.info_box.insert(tk.END, line)
-
+                    label.pack()
+                    self.opponent_labels.append(label)
+            else:
+                for label, p in zip(self.opponent_labels, opponents):
+                    label.config(text=f"{p.username} - Cards: {p.card_count}, Win Rate: {p.win_rate:.2f}")
 
             if resp.game_over:
-                self.info_box.insert(tk.END, f"\nGame Over! Winner: {resp.winner}\n")
+                messagebox.showinfo("Game Over", f"Winner: {resp.winner}")
                 self.game_id = None
-
-            self.info_box.config(state=tk.DISABLED)
         except Exception as e:
             print(e)
-            pass
+
+
+    def clear_hand_display(self):
+        for widget in self.card_frame.winfo_children():
+            widget.destroy()
 
     @with_leader_retry
     def play_card(self):
