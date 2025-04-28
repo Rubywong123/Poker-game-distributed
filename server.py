@@ -10,6 +10,7 @@ import card_game_pb2_grpc as stub
 from storage import Storage
 from session import GameSession
 from google.protobuf.empty_pb2 import Empty
+import json
 
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -44,6 +45,13 @@ class CardGameService(stub.CardGameServiceServicer):
             self.leader_channel = grpc.insecure_channel(self.leader_address)
             self.leader_stub = stub.CardGameServiceStub(self.leader_channel)
 
+        if not self.is_leader:
+            try:
+                self.leader_stub.RegisterReplica(pb.RegisterReplicaRequest(replica_address=f"{self.ip}:{self.port}"))
+                print(f"[Replica] Registered self to leader at {self.leader_address}")
+            except grpc.RpcError as e:
+                print(f"[Replica] Failed to register to leader: {e}")
+
         # log entry
         self.log = []  # List of (index, command_dict)
         self.commit_index = -1
@@ -61,11 +69,21 @@ class CardGameService(stub.CardGameServiceServicer):
     def monitor_heartbeat(self):
         while True:
             if self.is_leader:
+                to_remove = []
                 for i, replica in enumerate(self.replicas):
                     try:
                         replica.Heartbeat(pb.HeartbeatRequest())
                     except grpc.RpcError:
                         print(f"[Leader] Replica at {self.replica_addresses[i]} is down.")
+                        to_remove.append(i)
+                # Remove dead replicas
+                for idx in sorted(to_remove, reverse=True):
+                    del self.replica_addresses[idx]
+                    del self.replicas[idx]
+
+                if to_remove:
+                    self.broadcast_replica_list()
+
             else:
                 try:
                     self.leader_stub.Heartbeat(pb.HeartbeatRequest())
@@ -136,8 +154,8 @@ class CardGameService(stub.CardGameServiceServicer):
 
         for addr in self.replica_addresses:
             try:
-                stub = stub.CardGameServiceStub(grpc.insecure_channel(addr))
-                res = stub.RequestVote(pb.VoteRequest(term=self.current_term, candidate_id=f"{self.ip}:{self.port}"))
+                replica_stub = stub.CardGameServiceStub(grpc.insecure_channel(addr))
+                res = replica_stub.RequestVote(pb.VoteRequest(term=self.current_term, candidate_id=f"{self.ip}:{self.port}"))
                 if res.vote_granted:
                     votes += 1
             except grpc.RpcError:
@@ -158,12 +176,14 @@ class CardGameService(stub.CardGameServiceServicer):
 
         for addr in self.replica_addresses:
             try:
-                stub = stub.CardGameServiceStub(grpc.insecure_channel(addr))
-                stub.AnnounceLeader(pb.CoordinatorMessage(new_leader_address=f"{self.ip}:{self.port}"))
+                replica_stub = stub.CardGameServiceStub(grpc.insecure_channel(addr))
+                replica_stub.AnnounceLeader(pb.CoordinatorMessage(new_leader_address=f"{self.ip}:{self.port}"))
                 self.leader_address = f"{self.ip}:{self.port}"
                 self.leader_stub = None
             except grpc.RpcError:
                 continue
+        
+        self.broadcast_replica_list()
 
     def pull_games_from_leader(self):
         if self.is_leader:
@@ -172,7 +192,6 @@ class CardGameService(stub.CardGameServiceServicer):
         try:
             res = self.leader_stub.SyncAllGames(Empty())
             if res.status == "success":
-                import json
                 games_data = json.loads(res.message)
                 self.active_games.clear()
                 for gid, session_dict in games_data.items():
@@ -184,6 +203,48 @@ class CardGameService(stub.CardGameServiceServicer):
 
     def Heartbeat(self, request, context):
         return pb.Response(status="alive", message="Heartbeat OK")
+    
+    def RegisterReplica(self, request, context):
+        if not self.is_leader:
+            return pb.Response(status="error", message="Not the leader")
+
+        new_replica_address = request.replica_address
+        print(f"[Leader] Registering new replica: {new_replica_address}")
+
+        if new_replica_address not in self.replica_addresses:
+            self.replica_addresses.append(new_replica_address)
+            self.replicas.append(stub.CardGameServiceStub(grpc.insecure_channel(new_replica_address)))
+            self.broadcast_replica_list(exclude_address=new_replica_address)
+
+
+        return pb.Response(status="success", message="Replica registered.")
+
+    def UpdateReplicaList(self, request, context):
+        new_list = json.loads(request.replica_addresses_json)
+        
+        # remove if the new list contains its own address
+        if f"{self.ip}:{self.port}" in new_list:
+            new_list.remove(f"{self.ip}:{self.port}")
+
+        print(f"[Replica] Updating replica list: {new_list}")
+        self.replica_addresses = new_list
+        return pb.Response(status="success", message="Replica list updated.")
+
+    def broadcast_replica_list(self, exclude_address=None):
+        
+        replica_list_json = json.dumps(self.replica_addresses)
+
+        for addr in self.replica_addresses:
+            if addr == exclude_address:
+                continue  # Skip the newly joined replica
+
+            try:
+                replica_stub = stub.CardGameServiceStub(grpc.insecure_channel(addr))
+                replica_stub.UpdateReplicaList(pb.ReplicaListUpdateRequest(replica_addresses_json=replica_list_json))
+            except grpc.RpcError as e:
+                print(f"[Leader] Failed to update replica {addr}: {e}")
+
+
 
     def WhoIsLeader(self, request, context):
         return pb.LeaderInfoResponse(
@@ -338,7 +399,6 @@ class CardGameService(stub.CardGameServiceServicer):
         if not self.is_leader:
             return pb.SyncResponse(status="error", message="Not leader")
 
-        import json
         games_data = {gid: session.serialize() for gid, session in self.active_games.items()}
         return pb.SyncResponse(
             status="success",

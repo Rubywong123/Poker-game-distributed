@@ -125,6 +125,16 @@ class CardGameServiceStub(object):
                 request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
                 response_deserializer=card__game__pb2.SyncResponse.FromString,
                 _registered_method=True)
+        self.RegisterReplica = channel.unary_unary(
+                '/CardGameService/RegisterReplica',
+                request_serializer=card__game__pb2.RegisterReplicaRequest.SerializeToString,
+                response_deserializer=card__game__pb2.Response.FromString,
+                _registered_method=True)
+        self.UpdateReplicaList = channel.unary_unary(
+                '/CardGameService/UpdateReplicaList',
+                request_serializer=card__game__pb2.ReplicaListUpdateRequest.SerializeToString,
+                response_deserializer=card__game__pb2.Response.FromString,
+                _registered_method=True)
 
 
 class CardGameServiceServicer(object):
@@ -241,6 +251,18 @@ class CardGameServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RegisterReplica(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateReplicaList(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_CardGameServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -333,6 +355,16 @@ def add_CardGameServiceServicer_to_server(servicer, server):
                     servicer.SyncAllGames,
                     request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                     response_serializer=card__game__pb2.SyncResponse.SerializeToString,
+            ),
+            'RegisterReplica': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterReplica,
+                    request_deserializer=card__game__pb2.RegisterReplicaRequest.FromString,
+                    response_serializer=card__game__pb2.Response.SerializeToString,
+            ),
+            'UpdateReplicaList': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateReplicaList,
+                    request_deserializer=card__game__pb2.ReplicaListUpdateRequest.FromString,
+                    response_serializer=card__game__pb2.Response.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -821,6 +853,60 @@ class CardGameService(object):
             '/CardGameService/SyncAllGames',
             google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             card__game__pb2.SyncResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RegisterReplica(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/CardGameService/RegisterReplica',
+            card__game__pb2.RegisterReplicaRequest.SerializeToString,
+            card__game__pb2.Response.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateReplicaList(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/CardGameService/UpdateReplicaList',
+            card__game__pb2.ReplicaListUpdateRequest.SerializeToString,
+            card__game__pb2.Response.FromString,
             options,
             channel_credentials,
             insecure,

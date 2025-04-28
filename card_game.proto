@@ -28,6 +28,8 @@ service CardGameService {
   rpc RequestVote(VoteRequest) returns (VoteResponse);
   rpc AnnounceLeader(CoordinatorMessage) returns (Response);
   rpc SyncAllGames(google.protobuf.Empty) returns (SyncResponse);
+  rpc RegisterReplica(RegisterReplicaRequest) returns (Response);
+  rpc UpdateReplicaList(ReplicaListUpdateRequest) returns (Response);
 }
 
 // User & Auth
@@ -143,4 +145,10 @@ message SyncResponse {
 }
 
 
+message RegisterReplicaRequest {
+    string replica_address = 1;
+}
 
+message ReplicaListUpdateRequest {
+    string replica_addresses_json = 1;
+}
