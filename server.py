@@ -53,7 +53,7 @@ class CardGameService(stub.CardGameServiceServicer):
                 print(f"[Replica] Failed to register to leader: {e}")
 
         # log entry
-        self.log = []  # List of (index, command_dict)
+        self.log = []
         self.commit_index = -1
         self.next_log_index = 0
 
@@ -104,8 +104,8 @@ class CardGameService(stub.CardGameServiceServicer):
         entry = (self.next_log_index, command)
         self.log.append(entry)
         self.next_log_index += 1
-
-        acks = 1  # count self
+        # count self
+        acks = 1
 
         for replica in self.replicas:
             try:
@@ -114,7 +114,8 @@ class CardGameService(stub.CardGameServiceServicer):
             except grpc.RpcError:
                 pass  # log failure
 
-        if acks >= (len(self.replicas) + 1) // 2 + 1:  # quorum
+        # quorum
+        if acks >= (len(self.replicas) + 1) // 2 + 1:
             self.commit_index = entry[0]
             return self.apply_command(command)
         else:
@@ -123,17 +124,33 @@ class CardGameService(stub.CardGameServiceServicer):
     def apply_command(self, command):
         game_id = command["game_id"]
         session = self.active_games.get(game_id)
-
         if not session:
             return False, "Game not found"
 
         if command["type"] == "play_card":
-            return session.play_cards(command["username"], command["cards"])
+            success, msg = session.play_cards(command["username"], command["cards"])
         elif command["type"] == "pass_turn":
-            return session.pass_turn(command["username"])
+            success, msg = session.pass_turn(command["username"])
         elif command["type"] == "quit_game":
-            return session.quit_game(command["username"])
-        return False, "Unknown command"
+            success, msg = session.quit_game(command["username"])
+        else:
+            return False, "Unknown command"
+
+        if session.winner:
+            self.storage.declare_winner(game_id, session.winner)
+
+        return success, msg 
+    
+    def _persist_game(self, game_id, session: GameSession):
+        self.storage.create_game(game_id)
+        for player in session.players:
+            self.storage.add_player_to_game(
+                game_id,
+                player,
+                session.hands[player]
+            )
+
+
 
     def forward_to_leader(self, rpc_name, request):
         if self.is_leader:
@@ -187,7 +204,7 @@ class CardGameService(stub.CardGameServiceServicer):
 
     def pull_games_from_leader(self):
         if self.is_leader:
-            return  # no need to pull if already leader
+            return
 
         try:
             res = self.leader_stub.SyncAllGames(Empty())
@@ -263,10 +280,9 @@ class CardGameService(stub.CardGameServiceServicer):
         return pb.Response(status="success", message="User logged out.")
     
     def AppendLog(self, request, context):
-        command = eval(request.payload)  # e.g., {"type": "play_card", ...}
+        command = eval(request.payload) 
         self.log.append((request.index, command))
 
-        # Optional: apply immediately for now
         if request.index > self.commit_index:
             self.commit_index = request.index
             self.apply_command(command)
@@ -296,8 +312,10 @@ class CardGameService(stub.CardGameServiceServicer):
             players = self.match_queue[num]
             self.match_queue[num] = []
             game_id = str(uuid.uuid4())[:8]
+            session = GameSession(game_id, players)
 
             self.active_games[game_id] = GameSession(game_id, players)
+            self._persist_game(game_id, session)
 
             for player in players:
                 self.match_results[player] = game_id
@@ -355,15 +373,20 @@ class CardGameService(stub.CardGameServiceServicer):
             return pb.Response(status="error", message="Game not found")
 
         success, msg = session.quit_game(request.username)
-
         if success:
+            self.storage.quit_game(request.game_id, request.username)
+
+            if session.winner:
+                self.storage.declare_winner(request.game_id, session.winner)
+
             for replica in self.replicas:
                 try:
                     replica.QuitGame(request)
                 except grpc.RpcError as e:
-                    print(f"[Replication] Failed to replicate QuitGame to replica: {e}")
+                    print(f"[Replication] Failed to replicate QuitGame: {e}")
 
         return pb.Response(status="success" if success else "error", message=msg)
+
 
 
     def GetGameState(self, request, context):
@@ -402,7 +425,8 @@ class CardGameService(stub.CardGameServiceServicer):
         games_data = {gid: session.serialize() for gid, session in self.active_games.items()}
         return pb.SyncResponse(
             status="success",
-            message=json.dumps(games_data)  # send as a JSON string
+            # send as a JSON string
+            message=json.dumps(games_data)
         )
 
     
