@@ -203,17 +203,17 @@ class CardGameGUI:
         )
         start_button.pack(side=tk.LEFT, padx=10)
         
-        accept_button = tk.Button(
-            button_frame,
-            text="Accept Match",
-            command=self.accept_match,
-            font=self.default_font,
-            bg=self.colors["button_bg"],
-            fg=self.colors["button_fg"],
-            width=15,
-            relief=tk.RAISED
-        )
-        accept_button.pack(side=tk.LEFT, padx=10)
+        # accept_button = tk.Button(
+        #     button_frame,
+        #     text="Accept Match",
+        #     command=self.accept_match,
+        #     font=self.default_font,
+        #     bg=self.colors["button_bg"],
+        #     fg=self.colors["button_fg"],
+        #     width=15,
+        #     relief=tk.RAISED
+        # )
+        # accept_button.pack(side=tk.LEFT, padx=10)
         
         self.status_label = tk.Label(
             main_frame,
@@ -258,16 +258,16 @@ class CardGameGUI:
         except ValueError:
             messagebox.showerror("Error", "Enter a valid number")
 
-    def accept_match(self):
-        game_id = simpledialog.askstring("Game ID", "Enter Game ID:")
-        if not game_id:
-            return
-        resp = self.stub.AcceptMatch(pb.AcceptMatchRequest(username=self.username, game_id=game_id))
-        if resp.status == "success":
-            self.game_id = game_id
-            self.game_screen()
-        else:
-            messagebox.showerror("Error", resp.message)
+    # def accept_match(self):
+    #     game_id = simpledialog.askstring("Game ID", "Enter Game ID:")
+    #     if not game_id:
+    #         return
+    #     resp = self.stub.AcceptMatch(pb.AcceptMatchRequest(username=self.username, game_id=game_id))
+    #     if resp.status == "success":
+    #         self.game_id = game_id
+    #         self.game_screen()
+    #     else:
+    #         messagebox.showerror("Error", resp.message)
 
     def poll_game_state(self):
         while self.game_id:
