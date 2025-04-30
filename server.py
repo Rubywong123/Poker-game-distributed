@@ -52,7 +52,6 @@ class CardGameService(stub.CardGameServiceServicer):
                 ))
                 print(f"[Replica] Registered self to leader at {self.leader_address}")
                 
-                # 🔽 Pull and overwrite local DB
                 response = self.leader_stub.SyncDatabase(Empty())
                 if response.status == "success":
                     with open(self.storage.db_name, "wb") as f:
@@ -72,7 +71,7 @@ class CardGameService(stub.CardGameServiceServicer):
         # Raft state
         self.current_term = 0
         self.voted_for = None
-        self.state = "follower"  # or candidate or leader
+        self.state = "follower" 
         self.last_heartbeat = time.time()
         self.election_timeout = random.uniform(3, 5)
 
@@ -356,7 +355,6 @@ class CardGameService(stub.CardGameServiceServicer):
 
     def PassTurn(self, request, context):
         if not self.is_leader:
-            # Forward to leader
             return self.leader_stub.PassTurn(request)
 
         session = self.active_games.get(request.game_id)

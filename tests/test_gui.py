@@ -1,5 +1,7 @@
-import pytest
 import tkinter as tk
+import pytest
+import grpc
+from google.protobuf.empty_pb2 import Empty
 from tkinter import messagebox
 from unittest.mock import MagicMock
 from unittest import mock
@@ -100,3 +102,87 @@ def test_poll_game_state_exits_and_calls_home_screen(gui_app):
 
         mock_refresh.assert_called()
         mock_home_screen.assert_called_once()
+
+
+def test_refresh_game_state(gui_app):
+    gui_app.username = "alice"
+    gui_app.game_id = "game123"
+    gui_app.card_values = []
+    gui_app.opponent_info = []
+
+    gui_app.turn_label = mock.Mock()
+    gui_app.played_label = mock.Mock()
+    gui_app.time_label = mock.Mock()
+    gui_app.update_card_display = mock.Mock()
+    gui_app.update_opponents_display = mock.Mock()
+
+    players = [
+        pb.PlayerInfo(username="alice", cards=[1, 2, 3], card_count=3, win_rate=0.5, is_connected=True, is_current_turn=True),
+        pb.PlayerInfo(username="bob", cards=[], card_count=5, win_rate=0.2, is_connected=True, is_current_turn=False)
+    ]
+
+    mock_response = pb.GameStateResponse(
+        status="success",
+        current_turn="alice",
+        last_played_cards=[4],
+        players=players,
+        countdown_seconds=10,
+        game_over=True,
+        winner="alice"
+    )
+
+    with mock.patch.object(gui_app.stub, "GetGameState", return_value=mock_response), \
+         mock.patch("tkinter.messagebox.showinfo") as mock_info:
+
+        gui_app.refresh_game_state()
+
+    gui_app.turn_label.config.assert_called_with(text="Current Turn: alice")
+    gui_app.played_label.config.assert_called_with(text="Last Played: 4")
+    gui_app.time_label.config.assert_called_with(text="Time Left: 10s")
+    gui_app.update_card_display.assert_called_once_with([1, 2, 3])
+    gui_app.update_opponents_display.assert_called_once()
+    mock_info.assert_called_once_with("Game Over", "Winner: alice")
+    assert gui_app.game_id is None
+
+def test_update_opponents_display(gui_app):
+    class FakePlayer:
+        def __init__(self, username, card_count, win_rate):
+            self.username = username
+            self.card_count = card_count
+            self.win_rate = win_rate
+
+    opponents = [
+        FakePlayer("bob", 5, 0.6),
+        FakePlayer("carol", 3, 0.4)
+    ]
+
+    fake_widget1 = mock.Mock()
+    fake_widget2 = mock.Mock()
+    gui_app.opponents_container = mock.Mock()
+    gui_app.opponents_container.winfo_children.return_value = [fake_widget1, fake_widget2]
+
+    with mock.patch("tkinter.Label") as mock_label:
+        mock_label_instance = mock.Mock()
+        mock_label.return_value = mock_label_instance
+
+        gui_app.update_opponents_display(opponents)
+
+    fake_widget1.destroy.assert_called_once()
+    fake_widget2.destroy.assert_called_once()
+
+    assert mock_label.call_count == 2
+    assert all(lbl.pack.called for lbl in gui_app.opponent_labels)
+    assert gui_app.opponent_info == opponents
+
+def test_update_leader_stub_no_leader(gui_app):
+    with mock.patch("grpc.insecure_channel"), \
+         mock.patch("card_game_pb2_grpc.CardGameServiceStub") as mock_stub:
+
+        stub_instance = mock.Mock()
+        stub_instance.WhoIsLeader.side_effect = grpc.RpcError("Connection failed")
+        mock_stub.return_value = stub_instance
+
+        with mock.patch("builtins.print") as mock_print:
+            gui_app.update_leader_stub()
+            mock_print.assert_any_call("[GUI] Failed to find a leader.")
+
