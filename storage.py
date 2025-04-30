@@ -151,3 +151,14 @@ class Storage:
         )
 
         return {"status": "success", "message": f"{username} quit the game and received a loss."}
+
+    def delete_account(self, username, password):
+        cursor = self.execute_query("SELECT password_hash FROM users WHERE username=?", (username,))
+        row = cursor.fetchone()
+        if row:
+            if bcrypt.checkpw(password.encode(), row["password_hash"]):
+                self.execute_query("DELETE FROM users WHERE username=?", (username,), commit=True)
+                return {"status": "success", "message": "Account deleted"}
+            else:
+                return {"status": "error", "message": "Incorrect password"}
+        return {"status": "error", "message": "User not found"}

@@ -151,13 +151,6 @@ class CardGameGUI:
         main_frame = tk.Frame(self.root, bg=self.colors["bg"], padx=20, pady=20)
         main_frame.pack(expand=True, fill=tk.BOTH)
         
-        # welcome_label = self.create_styled_label(
-        #     main_frame, 
-        #     f"Welcome, {self.username}!", 
-        #     font=("Helvetica", 18, "bold"),
-        #     bg=self.colors["bg"]
-        # )
-        
         game_frame = tk.Frame(main_frame, bg=self.colors["frame_bg"], padx=30, pady=30)
         game_frame.pack(pady=20, fill=tk.X)
         
@@ -202,18 +195,6 @@ class CardGameGUI:
             relief=tk.RAISED
         )
         start_button.pack(side=tk.LEFT, padx=10)
-        
-        # accept_button = tk.Button(
-        #     button_frame,
-        #     text="Accept Match",
-        #     command=self.accept_match,
-        #     font=self.default_font,
-        #     bg=self.colors["button_bg"],
-        #     fg=self.colors["button_fg"],
-        #     width=15,
-        #     relief=tk.RAISED
-        # )
-        # accept_button.pack(side=tk.LEFT, padx=10)
         
         self.status_label = tk.Label(
             main_frame,
