@@ -47,10 +47,22 @@ class CardGameService(stub.CardGameServiceServicer):
 
         if not self.is_leader:
             try:
-                self.leader_stub.RegisterReplica(pb.RegisterReplicaRequest(replica_address=f"{self.ip}:{self.port}"))
+                self.leader_stub.RegisterReplica(pb.RegisterReplicaRequest(
+                    replica_address=f"{self.ip}:{self.port}"
+                ))
                 print(f"[Replica] Registered self to leader at {self.leader_address}")
+                
+                # 🔽 Pull and overwrite local DB
+                response = self.leader_stub.SyncDatabase(Empty())
+                if response.status == "success":
+                    with open(self.storage.db_name, "wb") as f:
+                        f.write(response.database_dump)
+                    print(f"[Replica] Synced database from leader.")
+                else:
+                    print("[Replica] Failed to sync database.")
             except grpc.RpcError as e:
                 print(f"[Replica] Failed to register to leader: {e}")
+
 
         # log entry
         self.log = []
@@ -428,6 +440,15 @@ class CardGameService(stub.CardGameServiceServicer):
             # send as a JSON string
             message=json.dumps(games_data)
         )
+    
+    def SyncDatabase(self, request, context):
+        if not self.is_leader:
+            return pb.SyncDatabaseResponse(status="error", database_dump=b"")
+
+        with open(self.storage.db_name, "rb") as f:
+            db_bytes = f.read()
+        return pb.SyncDatabaseResponse(status="success", database_dump=db_bytes)
+
 
     
     def RequestVote(self, request, context):

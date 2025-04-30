@@ -30,6 +30,7 @@ service CardGameService {
   rpc SyncAllGames(google.protobuf.Empty) returns (SyncResponse);
   rpc RegisterReplica(RegisterReplicaRequest) returns (Response);
   rpc UpdateReplicaList(ReplicaListUpdateRequest) returns (Response);
+  rpc SyncDatabase(google.protobuf.Empty) returns (SyncDatabaseResponse);
 }
 
 // User & Auth
@@ -152,3 +153,9 @@ message RegisterReplicaRequest {
 message ReplicaListUpdateRequest {
     string replica_addresses_json = 1;
 }
+
+message SyncDatabaseResponse {
+    string status = 1;
+    bytes database_dump = 2;
+}
+
