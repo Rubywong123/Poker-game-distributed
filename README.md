@@ -1,7 +1,7 @@
 # 🃏 Distributed Card Game System ♠️♦️
 This is the final project for CS262: Introduction to Distributed Computing. It is a distributed, turn-based card game system that allows multiple players to connect and play from different machines. The game allows players to enjoy a simplified Poker-style card game with friends while practicing their card-playing strategies. Players connect to the system via a graphical user interface (GUI), which communicates with replicated backend servers. The game logic includes turn-taking, valid card combinations, and winning conditions. Players are notified of game events in real time, which creats a smooth and engaging multiplayer experience. Under the hood, the system maintains a consistent and synchronized game state across all nodes by implementing the Raft consensus algorithm. The architecture is fault-tolerant, capable of withstanding server failures without disrupting gameplay. 
 
-# 🎯 Features
+## 🎯 Features
 
 - **Login Crendential** Users must log in with a username and password to join the game. Passwords are securely hashed before being stored in the SQLite database, ensuring that raw passwords are never saved in plain text.
 - **User-Specified Game Participants:** Players can initiate a new game by specifying the number of participants, allowing flexibility in game setup based on user's preference.
