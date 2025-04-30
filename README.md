@@ -1,7 +1,7 @@
 # 🃏 Distributed Card Game System ♠️♦️
 This is the final project for CS262: Introduction to Distributed Computing. It is a distributed, turn-based card game system that allows multiple players to connect and play from different machines. The game allows players to enjoy a simplified Poker-style card game with friends while practicing their card-playing strategies. Players connect to the system via a graphical user interface (GUI), which communicates with replicated backend servers. The game logic includes turn-taking, valid card combinations, and winning conditions. Players are notified of game events in real time, which creats a smooth and engaging multiplayer experience. Under the hood, the system maintains a consistent and synchronized game state across all nodes by implementing the Raft consensus algorithm. The architecture is fault-tolerant, capable of withstanding server failures without disrupting gameplay. 
 
-## ✨ Features
+## 🎯 Features
 
 - **Login Crendential** Users must log in with a username and password to join the game. Passwords are securely hashed before being stored in the SQLite database, ensuring that raw passwords are never saved in plain text.
 - **User-Specified Game Participants:** Players can initiate a new game by specifying the number of participants, allowing flexibility in game setup based on user's preference.
@@ -10,7 +10,7 @@ This is the final project for CS262: Introduction to Distributed Computing. It i
 - **Leader Election & Failover:** When the leader becomes unreachable, followers detect this via heartbeat timeouts and trigger a Raft-style election so that a new leader is elected using a voting mechanism.
 - **Persistent Storage:** Each server uses an independent SQLite database to persist user data and game metadata. On startup or leader change, followers request a full database sync from the leader. Win/loss records, user accounts, and ongoing game states are all persisted across restarts.
 
-## 🕹️ Front-end Overview
+## 🎮 Front-end Overview
 - **Login Screen:** 
     - The landing page once the user starts the card game system. On the login page, users enter their username and password to access the game. New users can create an account by registering their credentials for the first time. This ensures that only authenticated players can participate in the game. 
 - **Home Screen:** 
